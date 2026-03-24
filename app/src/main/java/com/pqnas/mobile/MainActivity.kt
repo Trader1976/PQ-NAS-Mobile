@@ -16,12 +16,13 @@ import com.pqnas.mobile.ui.screens.ScanPairQrScreen
 import com.pqnas.mobile.ui.screens.ServerSetupScreen
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-
+import com.pqnas.mobile.ui.theme.PQNASTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
+            PQNASTheme {
             val context = LocalContext.current
             val tokenStore = remember { TokenStore(context) }
             val authRepository = remember { AuthRepository(tokenStore) }
@@ -105,9 +106,19 @@ class MainActivity : ComponentActivity() {
                             accessTokenProvider = { accessToken }
                         )
                     }
-                    FilesScreen(filesRepository = filesRepository)
+                    FilesScreen(
+                        filesRepository = filesRepository,
+                        onLogout = {
+                            runBlocking {
+                                tokenStore.clearAll()
+                            }
+                            accessToken = ""
+                            baseUrl = ""
+                            screen = "server"
+                        }
+                    )
                 }
             }
         }
     }
-}
+}}
