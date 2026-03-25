@@ -30,6 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -60,6 +61,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
+import retrofit2.HttpException
 
 @Composable
 fun FilesScreen(
@@ -71,6 +73,9 @@ fun FilesScreen(
     var status by remember { mutableStateOf("Loading...") }
     var infoItem by remember { mutableStateOf<FileItemDto?>(null) }
     var pendingDownloadItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var renameItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deleteItem by remember { mutableStateOf<FileItemDto?>(null) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -88,7 +93,7 @@ fun FilesScreen(
                 currentPath = if (resp.path.isBlank()) null else resp.path
                 status = "OK"
             } catch (e: Exception) {
-                status = "Error: ${e.message}"
+                status = friendlyHttpMessage("Load", e)
             }
         }
     }
@@ -119,8 +124,9 @@ fun FilesScreen(
                 status = "OK"
                 snackbarHostState.showSnackbar("Saved to Download/${item.name}")
             } catch (e: Exception) {
-                status = "Error: ${e.message}"
-                snackbarHostState.showSnackbar("Download failed: ${e.message}")
+                val msg = friendlyHttpMessage("Download", e)
+                status = msg
+                snackbarHostState.showSnackbar(msg)
             } finally {
                 pendingDownloadItem = null
             }
@@ -161,8 +167,12 @@ fun FilesScreen(
                 text = status,
                 style = MaterialTheme.typography.bodyMedium,
                 color = when {
-                    status.startsWith("Error:") -> MaterialTheme.colorScheme.error
                     status == "OK" -> MaterialTheme.colorScheme.tertiary
+                    status.contains("failed", ignoreCase = true) ||
+                            status.contains("denied", ignoreCase = true) ||
+                            status.contains("expired", ignoreCase = true) ||
+                            status.contains("not found", ignoreCase = true) ||
+                            status.contains("cannot", ignoreCase = true) -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
             )
@@ -258,8 +268,15 @@ fun FilesScreen(
                                             }
                                         }
 
-                                        "Rename" -> status = "Rename not implemented yet: ${clickedItem.name}"
-                                        "Delete" -> status = "Delete not implemented yet: ${clickedItem.name}"
+                                        "Rename" -> {
+                                            renameItem = clickedItem
+                                            renameText = clickedItem.name
+                                        }
+
+                                        "Delete" -> {
+                                            deleteItem = clickedItem
+                                        }
+
                                         else -> status = "$action not implemented yet: ${clickedItem.name}"
                                     }
                                 }
@@ -296,6 +313,111 @@ fun FilesScreen(
                             item.mtime_unix?.takeIf { it > 0 }?.let { formatUnixTime(it) } ?: "-"
                         }"
                     )
+                }
+            }
+        )
+    }
+
+    renameItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = {
+                renameItem = null
+                renameText = ""
+            },
+            title = {
+                Text("Rename")
+            },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    label = { Text("New name") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newName = renameText.trim()
+                        if (newName.isBlank()) {
+                            status = "Name cannot be empty"
+                            return@TextButton
+                        }
+
+                        if (newName == item.name) {
+                            renameItem = null
+                            renameText = ""
+                            return@TextButton
+                        }
+
+                        scope.launch {
+                            try {
+                                val fromPath = buildItemPath(currentPath, item.name)
+                                val toPath = buildItemPath(currentPath, newName)
+                                filesRepository.move(fromPath, toPath)
+                                renameItem = null
+                                renameText = ""
+                                status = "OK"
+                                snackbarHostState.showSnackbar("Renamed ${item.name} to $newName")
+                                load(currentPath)
+                            } catch (e: Exception) {
+                                val msg = friendlyHttpMessage("Rename", e)
+                                status = msg
+                                snackbarHostState.showSnackbar(msg)
+                            }
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        renameItem = null
+                        renameText = ""
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    deleteItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { deleteItem = null },
+            title = {
+                Text("Delete")
+            },
+            text = {
+                Text("Delete ${if (item.type == "dir") "folder" else "file"} \"${item.name}\"?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                val path = buildItemPath(currentPath, item.name)
+                                filesRepository.delete(path)
+                                deleteItem = null
+                                status = "OK"
+                                snackbarHostState.showSnackbar("Deleted ${item.name}")
+                                load(currentPath)
+                            } catch (e: Exception) {
+                                val msg = friendlyHttpMessage("Delete", e)
+                                status = msg
+                                snackbarHostState.showSnackbar(msg)
+                            }
+                        }
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteItem = null }) {
+                    Text("Cancel")
                 }
             }
         )
@@ -480,5 +602,35 @@ private suspend fun saveDownloadedFile(
             out.write(bytes)
             out.flush()
         } ?: throw IllegalStateException("Could not open output stream")
+    }
+}
+
+private fun friendlyHttpMessage(
+    action: String,
+    error: Throwable
+): String {
+    val http = (error as? HttpException)?.code()
+        ?: Regex("""\bHTTP\s+(\d{3})\b""")
+            .find(error.message.orEmpty())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+
+    return when (http) {
+        400 -> "$action failed: invalid request."
+        401 -> "Session expired. Please pair again."
+        403 -> "Access denied."
+        404 -> "Item not found."
+        409 -> when (action) {
+            "Rename" -> "Cannot rename: a file or folder with that name already exists."
+            "Move" -> "Cannot move: destination already exists."
+            "Delete" -> "Cannot delete: item is in a conflicting state."
+            else -> "$action failed: destination already exists."
+        }
+        500 -> "$action failed: server error."
+        else -> {
+            val msg = error.message?.takeIf { it.isNotBlank() } ?: "unknown error"
+            "$action failed: $msg"
+        }
     }
 }

@@ -18,4 +18,16 @@ class FilesRepository(
             baseUrl = baseUrlProvider(),
             accessTokenProvider = accessTokenProvider
         ).downloadFile(path)
+
+    suspend fun delete(path: String) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).deleteFile(path)
+
+    suspend fun move(from: String, to: String) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).moveFile(from, to)
 }

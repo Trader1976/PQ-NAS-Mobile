@@ -2,6 +2,7 @@ package com.pqnas.mobile.api
 
 import okhttp3.ResponseBody
 import retrofit2.http.GET
+import retrofit2.http.POST
 import retrofit2.http.Query
 import retrofit2.http.Streaming
 
@@ -16,4 +17,15 @@ interface FilesApi {
     suspend fun downloadFile(
         @Query("path") path: String
     ): ResponseBody
+
+    @POST("/api/v4/files/delete")
+    suspend fun deleteFile(
+        @Query("path") path: String
+    ): DeleteFileResponse
+
+    @POST("/api/v4/files/move")
+    suspend fun moveFile(
+        @Query("from") from: String,
+        @Query("to") to: String
+    ): MoveFileResponse
 }

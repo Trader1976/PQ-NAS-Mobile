@@ -85,3 +85,19 @@ data class PairConsumeResponse(
     val fingerprint_hex: String,
     val role: String
 )
+
+data class DeleteFileResponse(
+    val ok: Boolean,
+    val path: String,
+    val type: String,
+    val freed_bytes: Long? = null,
+    val fingerprint_hex: String? = null
+)
+
+data class MoveFileResponse(
+    val ok: Boolean,
+    val from: String,
+    val to: String,
+    val type: String,
+    val bytes: Long? = null
+)
