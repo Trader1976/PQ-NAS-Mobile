@@ -14,3 +14,7 @@ captures/
 *.apk
 *.ap_
 *.aab
+# local temp/debug files
+.idea/misc.xml
+# Android Studio / IntelliJ local project files
+build.txt
