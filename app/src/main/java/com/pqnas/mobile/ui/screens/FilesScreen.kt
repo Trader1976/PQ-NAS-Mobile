@@ -36,6 +36,11 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,7 +67,13 @@ import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
 import retrofit2.HttpException
+import android.provider.OpenableColumns
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody
+import okio.BufferedSink
+import androidx.compose.material3.LinearProgressIndicator
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(
     filesRepository: FilesRepository,
@@ -80,6 +91,23 @@ fun FilesScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    var pendingUploadUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingUploadName by remember { mutableStateOf<String?>(null) }
+    var overwriteUploadTargetPath by remember { mutableStateOf<String?>(null) }
+    var overwriteUploadUri by remember { mutableStateOf<Uri?>(null) }
+
+    var showCreateMenu by remember { mutableStateOf(false) }
+    var uploadInProgress by remember { mutableStateOf(false) }
+    var uploadFileName by remember { mutableStateOf<String?>(null) }
+    var uploadBytesSent by remember { mutableStateOf(0L) }
+    var uploadBytesTotal by remember { mutableStateOf(0L) }
+
+    var newFolderDialogOpen by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
+
+    var newTextFileDialogOpen by remember { mutableStateOf(false) }
+    var newTextFileName by remember { mutableStateOf("") }
 
     fun load(path: String?) {
         scope.launch {
@@ -104,7 +132,64 @@ fun FilesScreen(
         if (parts.isEmpty()) return null
         return parts.dropLast(1).joinToString("/").ifBlank { null }
     }
+    fun createFolder(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) {
+            status = "Folder name cannot be empty"
+            return
+        }
+        if (trimmed.contains("/")) {
+            status = "Folder name cannot contain /"
+            return
+        }
 
+        scope.launch {
+            try {
+                val path = buildItemPath(currentPath, trimmed)
+                filesRepository.mkdir(path)
+                newFolderDialogOpen = false
+                newFolderName = ""
+                status = "OK"
+                snackbarHostState.showSnackbar("Created folder $trimmed")
+                load(currentPath)
+            } catch (e: Exception) {
+                val msg = friendlyHttpMessage("Create folder", e)
+                status = msg
+                snackbarHostState.showSnackbar(msg)
+            }
+        }
+    }
+
+    fun createTextFile(name: String) {
+        var trimmed = name.trim()
+        if (trimmed.isBlank()) {
+            status = "File name cannot be empty"
+            return
+        }
+        if (trimmed.contains("/")) {
+            status = "File name cannot contain /"
+            return
+        }
+        if (!trimmed.contains(".")) {
+            trimmed += ".txt"
+        }
+
+        scope.launch {
+            try {
+                val path = buildItemPath(currentPath, trimmed)
+                filesRepository.createTextFile(path = path, text = "", overwrite = false)
+                newTextFileDialogOpen = false
+                newTextFileName = ""
+                status = "OK"
+                snackbarHostState.showSnackbar("Created file $trimmed")
+                load(currentPath)
+            } catch (e: Exception) {
+                val msg = friendlyHttpMessage("Create text file", e)
+                status = msg
+                snackbarHostState.showSnackbar(msg)
+            }
+        }
+    }
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("*/*")
     ) { uri: Uri? ->
@@ -133,12 +218,118 @@ fun FilesScreen(
         }
     }
 
+    fun uploadUri(uri: Uri, overwrite: Boolean) {
+        var fileName: String? = null
+
+        scope.launch {
+            try {
+                fileName = queryDisplayName(context, uri)?.trim()
+                if (fileName.isNullOrBlank()) {
+                    uploadInProgress = false
+                    uploadFileName = null
+                    uploadBytesSent = 0L
+                    uploadBytesTotal = 0L
+
+                    val msg = "Upload failed: could not determine file name."
+                    status = msg
+                    snackbarHostState.showSnackbar(msg)
+                    return@launch
+                }
+
+                val size = queryFileSize(context, uri)
+                if (size == null || size < 0L) {
+                    uploadInProgress = false
+                    uploadFileName = null
+                    uploadBytesSent = 0L
+                    uploadBytesTotal = 0L
+
+                    val msg = "Upload failed: file size is unknown. Server requires Content-Length."
+                    status = msg
+                    snackbarHostState.showSnackbar(msg)
+                    return@launch
+                }
+
+                val safeFileName = fileName!!
+                val targetPath = buildItemPath(currentPath, safeFileName)
+
+                uploadInProgress = true
+                uploadFileName = safeFileName
+                uploadBytesSent = 0L
+                uploadBytesTotal = size
+
+                val body = uriRequestBody(
+                    context = context,
+                    uri = uri,
+                    contentLength = size,
+                    onProgress = { sent, total ->
+                        uploadBytesSent = sent
+                        uploadBytesTotal = total
+                    }
+                )
+
+                status = "Uploading $safeFileName..."
+                filesRepository.upload(path = targetPath, body = body, overwrite = overwrite)
+                status = "OK"
+
+                uploadInProgress = false
+                uploadFileName = null
+                uploadBytesSent = 0L
+                uploadBytesTotal = 0L
+
+                overwriteUploadTargetPath = null
+                overwriteUploadUri = null
+                pendingUploadUri = null
+                pendingUploadName = null
+
+                snackbarHostState.showSnackbar(
+                    if (overwrite) "Replaced $safeFileName" else "Uploaded $safeFileName"
+                )
+                load(currentPath)
+            } catch (e: Exception) {
+                uploadInProgress = false
+                uploadFileName = null
+                uploadBytesSent = 0L
+                uploadBytesTotal = 0L
+
+                val http = (e as? HttpException)?.code()
+                if (!overwrite && http == 409 && !fileName.isNullOrBlank()) {
+                    overwriteUploadTargetPath = buildItemPath(currentPath, fileName!!)
+                    overwriteUploadUri = uri
+                    pendingUploadUri = uri
+                    pendingUploadName = fileName
+                    status = "File already exists: $fileName"
+                } else {
+                    val msg = friendlyHttpMessage("Upload", e)
+                    status = msg
+                    snackbarHostState.showSnackbar(msg)
+                }
+            }
+        }
+    }
+    val uploadDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        uploadUri(uri, overwrite = false)
+    }
     LaunchedEffect(Unit) {
         load(null)
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { if (!uploadInProgress) showCreateMenu = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add"
+                )
+            }
+        }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -177,8 +368,50 @@ fun FilesScreen(
                 }
             )
 
-            Spacer(Modifier.height(16.dp))
+            if (uploadInProgress && uploadBytesTotal > 0L) {
+                Spacer(Modifier.height(12.dp))
 
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = uploadFileName?.let { "Uploading $it" } ?: "Uploading...",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        LinearProgressIndicator(
+                            progress = {
+                                if (uploadBytesTotal <= 0L) 0f
+                                else (uploadBytesSent.toFloat() / uploadBytesTotal.toFloat()).coerceIn(0f, 1f)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Text(
+                            text = "${((uploadBytesSent * 100) / uploadBytesTotal).coerceIn(0, 100)}% • ${
+                                formatBytes(uploadBytesSent)
+                            } / ${formatBytes(uploadBytesTotal)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -291,7 +524,147 @@ fun FilesScreen(
             }
         }
     }
+    if (showCreateMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showCreateMenu = false }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp)
+            ) {
+                Text(
+                    text = "Add to PQ-NAS",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
 
+                ListItem(
+                    headlineContent = { Text("Upload file") },
+                    supportingContent = { Text("Choose a file from this phone") },
+                    leadingContent = {
+                        Text(
+                            text = "↑",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        showCreateMenu = false
+                        uploadDocumentLauncher.launch(arrayOf("*/*"))
+                    }
+                )
+
+                ListItem(
+                    headlineContent = { Text("New folder") },
+                    supportingContent = { Text("Not implemented yet") },
+                    leadingContent = {
+                        Text(
+                            text = "📁",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        showCreateMenu = false
+                        newFolderDialogOpen = true
+                    }
+                )
+
+                ListItem(
+                    headlineContent = { Text("New text file") },
+                    supportingContent = { Text("Not implemented yet") },
+                    leadingContent = {
+                        Text(
+                            text = "TXT",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        showCreateMenu = false
+                        newTextFileDialogOpen = true
+                    }
+                )
+            }
+        }
+    }
+    if (newFolderDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                newFolderDialogOpen = false
+                newFolderName = ""
+            },
+            title = {
+                Text("New folder")
+            },
+            text = {
+                OutlinedTextField(
+                    value = newFolderName,
+                    onValueChange = { newFolderName = it },
+                    singleLine = true,
+                    label = { Text("Folder name") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        createFolder(newFolderName)
+                    }
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        newFolderDialogOpen = false
+                        newFolderName = ""
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    if (newTextFileDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                newTextFileDialogOpen = false
+                newTextFileName = ""
+            },
+            title = {
+                Text("New text file")
+            },
+            text = {
+                OutlinedTextField(
+                    value = newTextFileName,
+                    onValueChange = { newTextFileName = it },
+                    singleLine = true,
+                    label = { Text("File name") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        createTextFile(newTextFileName)
+                    }
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        newTextFileDialogOpen = false
+                        newTextFileName = ""
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
     infoItem?.let { item ->
         AlertDialog(
             onDismissRequest = { infoItem = null },
@@ -417,6 +790,51 @@ fun FilesScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deleteItem = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    if (overwriteUploadTargetPath != null && overwriteUploadUri != null) {
+        AlertDialog(
+            onDismissRequest = {
+                overwriteUploadTargetPath = null
+                overwriteUploadUri = null
+                pendingUploadUri = null
+                pendingUploadName = null
+            },
+            title = {
+                Text("Replace file?")
+            },
+            text = {
+                Text("A file with this name already exists. Do you want to replace it?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val uri = overwriteUploadUri
+                        if (uri != null) {
+                            uploadUri(uri, overwrite = true)
+                        } else {
+                            overwriteUploadTargetPath = null
+                            overwriteUploadUri = null
+                            pendingUploadUri = null
+                            pendingUploadName = null
+                        }
+                    }
+                ) {
+                    Text("Replace")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        overwriteUploadTargetPath = null
+                        overwriteUploadUri = null
+                        pendingUploadUri = null
+                        pendingUploadName = null
+                    }
+                ) {
                     Text("Cancel")
                 }
             }
@@ -625,12 +1043,79 @@ private fun friendlyHttpMessage(
             "Rename" -> "Cannot rename: a file or folder with that name already exists."
             "Move" -> "Cannot move: destination already exists."
             "Delete" -> "Cannot delete: item is in a conflicting state."
+            "Upload" -> "Upload failed: a file or folder with that name already exists."
+            "Create text file" -> "Cannot create file: a file or folder with that name already exists."
+            "Create folder" -> "Cannot create folder: path conflicts with an existing item."
             else -> "$action failed: destination already exists."
         }
+        411 -> "Upload failed: server requires a known file size."
+        413 -> "Upload failed: file is too large."
         500 -> "$action failed: server error."
         else -> {
             val msg = error.message?.takeIf { it.isNotBlank() } ?: "unknown error"
             "$action failed: $msg"
+        }
+    }
+}
+private fun queryDisplayName(context: Context, uri: Uri): String? {
+    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+    context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (nameIndex >= 0 && cursor.moveToFirst()) {
+            return cursor.getString(nameIndex)
+        }
+    }
+    return null
+}
+
+private fun queryFileSize(context: Context, uri: Uri): Long? {
+    val projection = arrayOf(OpenableColumns.SIZE)
+    context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+        val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+        if (sizeIndex >= 0 && cursor.moveToFirst()) {
+            if (!cursor.isNull(sizeIndex)) {
+                return cursor.getLong(sizeIndex)
+            }
+        }
+    }
+
+    return try {
+        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+            if (afd.length >= 0L) afd.length else null
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun uriRequestBody(
+    context: Context,
+    uri: Uri,
+    contentLength: Long,
+    mimeType: String? = null,
+    onProgress: (sentBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
+): RequestBody {
+    return object : RequestBody() {
+        override fun contentType() = mimeType?.toMediaTypeOrNull()
+
+        override fun contentLength(): Long = contentLength
+
+        override fun writeTo(sink: BufferedSink) {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var uploaded = 0L
+
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read == -1) break
+
+                    sink.write(buffer, 0, read)
+                    uploaded += read
+                    onProgress(uploaded, contentLength)
+                }
+
+                sink.flush()
+            } ?: throw IllegalStateException("Could not open input stream")
         }
     }
 }

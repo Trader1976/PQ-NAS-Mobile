@@ -101,3 +101,16 @@ data class MoveFileResponse(
     val type: String,
     val bytes: Long? = null
 )
+
+data class UploadFileResponse(
+    val ok: Boolean,
+    val fingerprint_hex: String? = null,
+    val path: String,
+    val bytes: Long,
+    val overwrite: Boolean? = null
+)
+
+data class MkdirResponse(
+    val ok: Boolean,
+    val path: String
+)
