@@ -33,7 +33,7 @@ fun ServerSetupScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "PQ-NAS Mobile",
+            text = "DNA-Nexus Mobile",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground
         )
@@ -83,7 +83,7 @@ fun ServerSetupScreen(
         Spacer(Modifier.height(4.dp))
 
         Text(
-            text = "Preferred: open Trusted Devices in PQ-NAS web UI, show the QR, then scan it here.",
+            text = "Preferred: open Trusted Devices in DNA-Nexus web UI, show the QR, then scan it here.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

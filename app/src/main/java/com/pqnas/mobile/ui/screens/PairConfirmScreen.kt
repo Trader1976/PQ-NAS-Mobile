@@ -29,7 +29,7 @@ fun PairConfirmScreen(
     onPaired: () -> Unit,
     onBack: () -> Unit
 ) {
-    var deviceName by remember { mutableStateOf("PQ-NAS Android") }
+    var deviceName by remember { mutableStateOf("DNA-Nexus Android") }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()

@@ -28,7 +28,7 @@ object PairQrParser {
             version = version,
             pairToken = pairToken,
             origin = origin,
-            appName = if (appName.isBlank()) "PQ-NAS" else appName
+            appName = if (appName.isBlank()) "DNA-Nexus" else appName
         )
     }
 }

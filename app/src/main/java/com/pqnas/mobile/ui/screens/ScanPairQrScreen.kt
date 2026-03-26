@@ -27,7 +27,7 @@ fun ScanPairQrScreen(
     onParsed: (PairQrPayload) -> Unit,
     onBack: () -> Unit
 ) {
-    var status by remember { mutableStateOf("Ready to scan PQ-NAS pairing QR") }
+    var status by remember { mutableStateOf("Ready to scan DNA-Nexus pairing QR") }
 
     val launcher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val contents = result.contents
@@ -38,7 +38,7 @@ fun ScanPairQrScreen(
 
         val parsed = PairQrParser.parse(contents)
         if (parsed == null) {
-            status = "Invalid PQ-NAS pairing QR"
+            status = "Invalid DNA-Nexus pairing QR"
             return@rememberLauncherForActivityResult
         }
 
@@ -48,7 +48,7 @@ fun ScanPairQrScreen(
     fun startScan() {
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("Scan PQ-NAS pairing QR")
+            setPrompt("Scan DNA-Nexus pairing QR")
             setBeepEnabled(true)
             setOrientationLocked(false)
         }
@@ -81,7 +81,7 @@ fun ScanPairQrScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Open Trusted Devices in PQ-NAS web UI and show the QR code there.",
+                    text = "Open Trusted Devices in DNA-Nexus web UI and show the QR code there.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )

@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PQ-NAS"
+rootProject.name = "DNA-Nexus"
 include(":app")
  

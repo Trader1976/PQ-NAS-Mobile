@@ -339,7 +339,7 @@ fun FilesScreen(
                 .padding(16.dp)
         ) {
             Text(
-                text = "PQ-NAS Files",
+                text = "DNA-Nexus Files",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -534,7 +534,7 @@ fun FilesScreen(
                     .padding(bottom = 20.dp)
             ) {
                 Text(
-                    text = "Add to PQ-NAS",
+                    text = "Add to DNA-Nexus",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
@@ -558,7 +558,6 @@ fun FilesScreen(
 
                 ListItem(
                     headlineContent = { Text("New folder") },
-                    supportingContent = { Text("Not implemented yet") },
                     leadingContent = {
                         Text(
                             text = "📁",
@@ -573,7 +572,6 @@ fun FilesScreen(
 
                 ListItem(
                     headlineContent = { Text("New text file") },
-                    supportingContent = { Text("Not implemented yet") },
                     leadingContent = {
                         Text(
                             text = "TXT",

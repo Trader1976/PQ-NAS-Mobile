@@ -30,7 +30,7 @@ class AuthRepository(
         val resp = api.consumeApp(
             ConsumeAppRequest(
                 k = k,
-                device_name = "PQ-NAS Android",
+                device_name = "DNA-Nexus Android",
                 platform = "android",
                 app_version = "0.1.0"
             )
@@ -48,7 +48,7 @@ class AuthRepository(
     suspend fun consumePair(
         baseUrl: String,
         pairToken: String,
-        deviceName: String = "PQ-NAS Android"
+        deviceName: String = "DNA-Nexus Android"
     ): Boolean {
         val api = ApiFactory.createAuthApi(baseUrl)
         val resp = api.consumePair(
