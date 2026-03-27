@@ -8,6 +8,7 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Query
 import retrofit2.http.Streaming
+import retrofit2.http.Headers
 
 interface FilesApi {
     @GET("/api/v4/files/list")
@@ -20,6 +21,17 @@ interface FilesApi {
     suspend fun downloadFile(
         @Query("path") path: String
     ): ResponseBody
+
+    @GET("/api/v4/files/read_text")
+    suspend fun readTextFile(
+        @Query("path") path: String
+    ): ReadTextResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/files/write_text")
+    suspend fun writeTextFile(
+        @Body request: WriteTextRequest
+    ): WriteTextResponse
 
     @POST("/api/v4/files/delete")
     suspend fun deleteFile(
@@ -43,4 +55,6 @@ interface FilesApi {
         @Query("overwrite") overwrite: Int = 0,
         @Body body: RequestBody
     ): UploadFileResponse
+
+
 }

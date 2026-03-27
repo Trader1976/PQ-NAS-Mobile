@@ -92,6 +92,15 @@ fun FilesScreen(
     var previewStatus by remember { mutableStateOf("") }
     var previewIndex by remember { mutableStateOf(-1) }
 
+    var textEditItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var textEditText by remember { mutableStateOf("") }
+    var textEditOriginalText by remember { mutableStateOf("") }
+    var textEditEncoding by remember { mutableStateOf("utf-8") }
+    var textEditMtimeEpoch by remember { mutableStateOf<Long?>(null) }
+    var textEditSha256 by remember { mutableStateOf<String?>(null) }
+    var textEditLoading by remember { mutableStateOf(false) }
+    var textEditSaving by remember { mutableStateOf(false) }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -112,6 +121,8 @@ fun FilesScreen(
 
     var newTextFileDialogOpen by remember { mutableStateOf(false) }
     var newTextFileName by remember { mutableStateOf("") }
+
+
 
     fun load(path: String?) {
         scope.launch {
@@ -160,6 +171,73 @@ fun FilesScreen(
                 }
             } catch (e: Exception) {
                 previewStatus = friendlyHttpMessage("Preview", e)
+            }
+        }
+    }
+    fun openTextEditor(item: FileItemDto) {
+        if (item.type != "file") return
+        if (!isProbablyTextFile(item.name)) return
+
+        textEditItem = item
+        textEditText = ""
+        textEditOriginalText = ""
+        textEditEncoding = "utf-8"
+        textEditMtimeEpoch = null
+        textEditSha256 = null
+        textEditLoading = true
+        textEditSaving = false
+        status = "Loading text file..."
+
+        scope.launch {
+            try {
+                val fullPath = buildItemPath(currentPath, item.name)
+                val resp = filesRepository.readText(fullPath)
+
+                textEditText = resp.text ?: ""
+                textEditOriginalText = resp.text ?: ""
+                textEditEncoding = resp.encoding ?: "utf-8"
+                textEditMtimeEpoch = resp.mtime_epoch
+                textEditSha256 = resp.sha256
+                textEditLoading = false
+                status = "OK"
+            } catch (e: Exception) {
+                textEditLoading = false
+                val msg = friendlyHttpMessage("Read text", e)
+                status = msg
+                snackbarHostState.showSnackbar(msg)
+                textEditItem = null
+            }
+        }
+    }
+    fun saveTextEditor() {
+        val item = textEditItem ?: return
+        val newText = textEditText
+
+        textEditSaving = true
+        status = "Saving ${item.name}..."
+
+        scope.launch {
+            try {
+                val fullPath = buildItemPath(currentPath, item.name)
+                val resp = filesRepository.writeText(
+                    path = fullPath,
+                    text = newText,
+                    expectedMtimeEpoch = textEditMtimeEpoch,
+                    expectedSha256 = textEditSha256
+                )
+
+                textEditOriginalText = newText
+                textEditMtimeEpoch = resp.mtime_epoch
+                textEditSha256 = resp.sha256
+                textEditSaving = false
+                status = "OK"
+                snackbarHostState.showSnackbar("Saved ${item.name}")
+                load(currentPath)
+            } catch (e: Exception) {
+                textEditSaving = false
+                val msg = friendlyHttpMessage("Write text", e)
+                status = msg
+                snackbarHostState.showSnackbar(msg)
             }
         }
     }
@@ -538,13 +616,15 @@ fun FilesScreen(
                                         load(next)
                                     } else if (isProbablyImageFile(item.name)) {
                                         openImagePreview(item)
+                                    } else if (isProbablyTextFile(item.name)) {
+                                        openTextEditor(item)
                                     }
                                 },
                                 onMenuAction = { action, clickedItem ->
                                     when (action) {
 
-                                        "Preview" -> {
-                                            openImagePreview(clickedItem)
+                                        "EditText" -> {
+                                            openTextEditor(clickedItem)
                                         }
 
                                         "Info" -> infoItem = clickedItem
@@ -745,7 +825,77 @@ fun FilesScreen(
             }
         )
     }
+    textEditItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!textEditSaving) {
+                    textEditItem = null
+                    textEditText = ""
+                    textEditOriginalText = ""
+                    textEditEncoding = "utf-8"
+                    textEditMtimeEpoch = null
+                    textEditSha256 = null
+                }
+            },
+            title = {
+                Column {
+                    Text("Edit text file")
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (textEditLoading) {
+                            "Loading..."
+                        } else {
+                            "Encoding: $textEditEncoding"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
+                    OutlinedTextField(
+                        value = textEditText,
+                        onValueChange = { textEditText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(320.dp),
+                        enabled = !textEditLoading && !textEditSaving,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        singleLine = false
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { saveTextEditor() },
+                    enabled = !textEditLoading && !textEditSaving && textEditText != textEditOriginalText
+                ) {
+                    Text(if (textEditSaving) "Saving..." else "Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        textEditItem = null
+                        textEditText = ""
+                        textEditOriginalText = ""
+                        textEditEncoding = "utf-8"
+                        textEditMtimeEpoch = null
+                        textEditSha256 = null
+                    },
+                    enabled = !textEditSaving
+                ) {
+                    Text("Close")
+                }
+            }
+        )
+    }
     renameItem?.let { item ->
         AlertDialog(
             onDismissRequest = {
@@ -1116,6 +1266,19 @@ private fun buildMetaLine(item: FileItemDto): String {
         "File • $sizeText"
     }
 }
+
+private fun isProbablyTextFile(name: String): Boolean {
+    val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
+    return ext in setOf(
+        "txt", "md", "json", "js", "ts", "jsx", "tsx",
+        "html", "htm", "css", "xml", "yml", "yaml",
+        "toml", "ini", "conf", "log",
+        "c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx",
+        "py", "sh", "bash", "zsh", "sql", "csv", "tsv",
+        "java", "go", "rs", "rb", "php", "lua", "swift", "kt"
+    )
+}
+
 private fun isProbablyImageFile(name: String): Boolean {
     val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
     return ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico")
@@ -1176,6 +1339,7 @@ private fun friendlyHttpMessage(
             "Upload" -> "Upload failed: a file or folder with that name already exists."
             "Create text file" -> "Cannot create file: a file or folder with that name already exists."
             "Create folder" -> "Cannot create folder: path conflicts with an existing item."
+            "Write text" -> "File changed on server. Reload and review before saving again."
             else -> "$action failed: destination already exists."
         }
         411 -> "Upload failed: server requires a known file size."

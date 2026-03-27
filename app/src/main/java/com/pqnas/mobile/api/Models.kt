@@ -120,3 +120,29 @@ data class MkdirResponse(
     val ok: Boolean,
     val path: String
 )
+data class ReadTextResponse(
+    val ok: Boolean,
+    val path: String? = null,
+    val text: String? = null,
+    val encoding: String? = null,
+    val mtime_epoch: Long? = null,
+    val sha256: String? = null,
+    val error: String? = null,
+    val message: String? = null
+)
+
+data class WriteTextRequest(
+    val path: String,
+    val text: String,
+    val expected_mtime_epoch: Long? = null,
+    val expected_sha256: String? = null
+)
+
+data class WriteTextResponse(
+    val ok: Boolean,
+    val path: String? = null,
+    val mtime_epoch: Long? = null,
+    val sha256: String? = null,
+    val error: String? = null,
+    val message: String? = null
+)

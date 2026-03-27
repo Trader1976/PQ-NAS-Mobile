@@ -21,6 +21,30 @@ class FilesRepository(
             accessTokenProvider = accessTokenProvider
         ).downloadFile(path)
 
+    suspend fun readText(path: String) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).readTextFile(path)
+
+    suspend fun writeText(
+        path: String,
+        text: String,
+        expectedMtimeEpoch: Long? = null,
+        expectedSha256: String? = null
+    ) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).writeTextFile(
+            com.pqnas.mobile.api.WriteTextRequest(
+                path = path,
+                text = text,
+                expected_mtime_epoch = expectedMtimeEpoch,
+                expected_sha256 = expectedSha256
+            )
+        )
+
     suspend fun delete(path: String) =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),
