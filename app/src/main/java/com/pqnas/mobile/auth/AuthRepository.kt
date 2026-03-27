@@ -1,5 +1,6 @@
 package com.pqnas.mobile.auth
 
+import android.os.Build
 import com.pqnas.mobile.api.ApiFactory
 import com.pqnas.mobile.api.ConsumeAppRequest
 import kotlinx.coroutines.delay
@@ -27,14 +28,26 @@ class AuthRepository(
 
     suspend fun consumeApp(baseUrl: String, k: String): Boolean {
         val api = ApiFactory.createAuthApi(baseUrl)
+
+        val manufacturer = Build.MANUFACTURER ?: ""
+        val model = Build.MODEL ?: ""
+        val osVersion = "Android ${Build.VERSION.RELEASE ?: ""}".trim()
+        android.util.Log.d(
+            "PQNAS_AUTH",
+            "app metadata manufacturer='$manufacturer' model='$model' os='$osVersion'"
+        )
         val resp = api.consumeApp(
             ConsumeAppRequest(
                 k = k,
                 device_name = "DNA-Nexus Android",
                 platform = "android",
-                app_version = "0.1.0"
+                app_version = "0.1.0",
+                device_model = model,
+                device_manufacturer = manufacturer,
+                os_version = osVersion
             )
         )
+
         tokenStore.saveTokens(
             accessToken = resp.access_token,
             refreshToken = resp.refresh_token,
@@ -45,18 +58,33 @@ class AuthRepository(
 
         return resp.ok
     }
+
     suspend fun consumePair(
         baseUrl: String,
         pairToken: String,
         deviceName: String = "DNA-Nexus Android"
     ): Boolean {
         val api = ApiFactory.createAuthApi(baseUrl)
+
+        val manufacturer = Build.MANUFACTURER ?: ""
+        val model = Build.MODEL ?: ""
+        val osVersion = "Android ${Build.VERSION.RELEASE ?: ""}".trim()
+
+
+        android.util.Log.d(
+            "PQNAS_PAIR",
+            "pair metadata manufacturer='$manufacturer' model='$model' os='$osVersion'"
+        )
+
         val resp = api.consumePair(
             com.pqnas.mobile.api.PairConsumeRequest(
                 pair_token = pairToken,
                 device_name = deviceName,
                 platform = "android",
-                app_version = "0.1.0"
+                app_version = "0.1.0",
+                device_model = model,
+                device_manufacturer = manufacturer,
+                os_version = osVersion
             )
         )
 
@@ -67,6 +95,7 @@ class AuthRepository(
             fingerprintHex = resp.fingerprint_hex,
             role = resp.role
         )
+
         return resp.ok
     }
 }

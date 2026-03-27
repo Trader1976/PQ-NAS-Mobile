@@ -23,7 +23,10 @@ data class ConsumeAppRequest(
     val k: String,
     val device_name: String,
     val platform: String,
-    val app_version: String
+    val app_version: String,
+    val device_model: String? = null,
+    val device_manufacturer: String? = null,
+    val os_version: String? = null
 )
 
 data class ConsumeAppResponse(
@@ -71,7 +74,10 @@ data class PairConsumeRequest(
     val pair_token: String,
     val device_name: String,
     val platform: String,
-    val app_version: String
+    val app_version: String,
+    val device_model: String? = null,
+    val device_manufacturer: String? = null,
+    val os_version: String? = null
 )
 
 data class PairConsumeResponse(
