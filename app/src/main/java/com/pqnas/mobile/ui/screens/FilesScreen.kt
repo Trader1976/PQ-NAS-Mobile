@@ -87,6 +87,10 @@ fun FilesScreen(
     var renameItem by remember { mutableStateOf<FileItemDto?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var previewItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var previewStatus by remember { mutableStateOf("") }
+    var previewIndex by remember { mutableStateOf(-1) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -126,6 +130,52 @@ fun FilesScreen(
         }
     }
 
+    fun openImagePreview(item: FileItemDto) {
+        if (item.type != "file") return
+        if (!isProbablyImageFile(item.name)) return
+
+        val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
+        val idx = visibleImages.indexOfFirst { it.name == item.name }
+
+        previewItem = item
+        previewBitmap = null
+        previewStatus = "Loading..."
+        previewIndex = idx
+
+        scope.launch {
+            try {
+                val fullPath = buildItemPath(currentPath, item.name)
+                val body = filesRepository.download(fullPath)
+                val bytes = withContext(Dispatchers.IO) { body.bytes() }
+
+                val bmp = withContext(Dispatchers.Default) {
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+
+                if (bmp == null) {
+                    previewStatus = "Failed to decode image"
+                } else {
+                    previewBitmap = bmp
+                    previewStatus = "${bmp.width} × ${bmp.height}"
+                }
+            } catch (e: Exception) {
+                previewStatus = friendlyHttpMessage("Preview", e)
+            }
+        }
+    }
+    fun openAdjacentImage(step: Int) {
+        val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
+        if (visibleImages.isEmpty()) return
+
+        val current = previewItem ?: return
+        val curIdx = visibleImages.indexOfFirst { it.name == current.name }
+        if (curIdx < 0) return
+
+        val nextIdx = curIdx + step
+        if (nextIdx !in visibleImages.indices) return
+
+        openImagePreview(visibleImages[nextIdx])
+    }
     fun parentPath(path: String?): String? {
         if (path.isNullOrBlank()) return null
         val parts = path.split("/").filter { it.isNotBlank() }
@@ -486,10 +536,17 @@ fun FilesScreen(
                                         val next = listOfNotNull(currentPath, item.name)
                                             .joinToString("/")
                                         load(next)
+                                    } else if (isProbablyImageFile(item.name)) {
+                                        openImagePreview(item)
                                     }
                                 },
                                 onMenuAction = { action, clickedItem ->
                                     when (action) {
+
+                                        "Preview" -> {
+                                            openImagePreview(clickedItem)
+                                        }
+
                                         "Info" -> infoItem = clickedItem
 
                                         "Download" -> {
@@ -793,6 +850,68 @@ fun FilesScreen(
             }
         )
     }
+    previewItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = {
+                previewItem = null
+                previewBitmap = null
+                previewStatus = ""
+                previewIndex = -1
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = { openAdjacentImage(-1) },
+                        enabled = run {
+                            val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
+                            val idx = visibleImages.indexOfFirst { it.name == item.name }
+                            idx > 0
+                        }
+                    ) {
+                        Text("Prev")
+                    }
+
+                    TextButton(
+                        onClick = { openAdjacentImage(1) },
+                        enabled = run {
+                            val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
+                            val idx = visibleImages.indexOfFirst { it.name == item.name }
+                            idx >= 0 && idx < visibleImages.lastIndex
+                        }
+                    ) {
+                        Text("Next")
+                    }
+
+                    TextButton(
+                        onClick = {
+                            previewItem = null
+                            previewBitmap = null
+                            previewStatus = ""
+                            previewIndex = -1
+                        }
+                    ) {
+                        Text("Close")
+                    }
+                }
+            },
+            title = {
+                Text(item.name)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(previewStatus)
+
+                    previewBitmap?.let { bmp ->
+                        androidx.compose.foundation.Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = item.name,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        )
+    }
     if (overwriteUploadTargetPath != null && overwriteUploadUri != null) {
         AlertDialog(
             onDismissRequest = {
@@ -852,7 +971,7 @@ private fun FileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = isDir, onClick = onOpen)
+            .clickable(onClick = onOpen)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -903,6 +1022,16 @@ private fun FileRow(
                 expanded = menuExpanded,
                 onDismissRequest = { menuExpanded = false }
             ) {
+                if (!isDir && isProbablyImageFile(item.name)) {
+                    DropdownMenuItem(
+                        text = { Text("Open preview") },
+                        onClick = {
+                            menuExpanded = false
+                            onMenuAction("Preview", item)
+                        }
+                    )
+                }
+
                 DropdownMenuItem(
                     text = { Text("Download") },
                     onClick = {
@@ -987,7 +1116,10 @@ private fun buildMetaLine(item: FileItemDto): String {
         "File • $sizeText"
     }
 }
-
+private fun isProbablyImageFile(name: String): Boolean {
+    val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
+    return ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico")
+}
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val units = arrayOf("KB", "MB", "GB", "TB", "PB")
