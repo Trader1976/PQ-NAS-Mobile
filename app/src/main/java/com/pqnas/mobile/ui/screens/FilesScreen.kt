@@ -2,8 +2,10 @@ package com.pqnas.mobile.ui.screens
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +20,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -26,21 +30,21 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,23 +59,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pqnas.mobile.api.FileItemDto
+import com.pqnas.mobile.api.MeStorageResponse
 import com.pqnas.mobile.files.FileTypeIcons
 import com.pqnas.mobile.files.FilesRepository
 import com.pqnas.mobile.files.SvgIconLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody
+import okio.BufferedSink
+import retrofit2.HttpException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
-import retrofit2.HttpException
-import android.provider.OpenableColumns
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody
-import okio.BufferedSink
-import androidx.compose.material3.LinearProgressIndicator
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,6 +85,11 @@ fun FilesScreen(
     var currentPath by remember { mutableStateOf<String?>(null) }
     var items by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
     var status by remember { mutableStateOf("Loading...") }
+    var myStorage by remember { mutableStateOf<MeStorageResponse?>(null) }
+    var storageStatus by remember { mutableStateOf("") }
+
+    var showSettingsSheet by remember { mutableStateOf(false) }
+
     var infoItem by remember { mutableStateOf<FileItemDto?>(null) }
     var pendingDownloadItem by remember { mutableStateOf<FileItemDto?>(null) }
     var renameItem by remember { mutableStateOf<FileItemDto?>(null) }
@@ -122,8 +130,6 @@ fun FilesScreen(
     var newTextFileDialogOpen by remember { mutableStateOf(false) }
     var newTextFileName by remember { mutableStateOf("") }
 
-
-
     fun load(path: String?) {
         scope.launch {
             status = "Loading..."
@@ -134,11 +140,24 @@ fun FilesScreen(
                         .thenBy { it.name.lowercase(Locale.getDefault()) }
                 )
                 currentPath = if (resp.path.isBlank()) null else resp.path
+
+                try {
+                    myStorage = filesRepository.getMyStorage()
+                    storageStatus = ""
+                } catch (e: Exception) {
+                    myStorage = null
+                    storageStatus = friendlyHttpMessage("Storage", e)
+                }
+
                 status = "OK"
             } catch (e: Exception) {
                 status = friendlyHttpMessage("Load", e)
             }
         }
+    }
+
+    fun refreshCurrent() {
+        load(currentPath)
     }
 
     fun openImagePreview(item: FileItemDto) {
@@ -174,6 +193,7 @@ fun FilesScreen(
             }
         }
     }
+
     fun openTextEditor(item: FileItemDto) {
         if (item.type != "file") return
         if (!isProbablyTextFile(item.name)) return
@@ -209,6 +229,7 @@ fun FilesScreen(
             }
         }
     }
+
     fun saveTextEditor() {
         val item = textEditItem ?: return
         val newText = textEditText
@@ -241,6 +262,7 @@ fun FilesScreen(
             }
         }
     }
+
     fun openAdjacentImage(step: Int) {
         val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
         if (visibleImages.isEmpty()) return
@@ -254,12 +276,14 @@ fun FilesScreen(
 
         openImagePreview(visibleImages[nextIdx])
     }
+
     fun parentPath(path: String?): String? {
         if (path.isNullOrBlank()) return null
         val parts = path.split("/").filter { it.isNotBlank() }
         if (parts.isEmpty()) return null
         return parts.dropLast(1).joinToString("/").ifBlank { null }
     }
+
     fun createFolder(name: String) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) {
@@ -318,6 +342,7 @@ fun FilesScreen(
             }
         }
     }
+
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("*/*")
     ) { uri: Uri? ->
@@ -434,12 +459,14 @@ fun FilesScreen(
             }
         }
     }
+
     val uploadDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         uploadUri(uri, overwrite = false)
     }
+
     LaunchedEffect(Unit) {
         load(null)
     }
@@ -466,11 +493,26 @@ fun FilesScreen(
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
-            Text(
-                text = "DNA-Nexus Files",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "DNA-Nexus Files",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f)
+                )
+
+                IconButton(
+                    onClick = { showSettingsSheet = true }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings and info"
+                    )
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
 
@@ -540,6 +582,7 @@ fun FilesScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -547,30 +590,9 @@ fun FilesScreen(
                 Button(
                     onClick = { load(parentPath(currentPath)) },
                     enabled = currentPath != null,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors()
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Up")
-                }
-
-                Button(
-                    onClick = { load(currentPath) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Refresh")
-                }
-
-                if (onLogout != null) {
-                    Button(
-                        onClick = onLogout,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    ) {
-                        Text("Logout")
-                    }
                 }
             }
 
@@ -622,13 +644,8 @@ fun FilesScreen(
                                 },
                                 onMenuAction = { action, clickedItem ->
                                     when (action) {
-
-                                        "EditText" -> {
-                                            openTextEditor(clickedItem)
-                                        }
-
+                                        "EditText" -> openTextEditor(clickedItem)
                                         "Info" -> infoItem = clickedItem
-
                                         "Download" -> {
                                             if (clickedItem.type == "dir") {
                                                 status = "Folder download not implemented yet: ${clickedItem.name}"
@@ -637,16 +654,13 @@ fun FilesScreen(
                                                 createDocumentLauncher.launch(clickedItem.name)
                                             }
                                         }
-
                                         "Rename" -> {
                                             renameItem = clickedItem
                                             renameText = clickedItem.name
                                         }
-
                                         "Delete" -> {
                                             deleteItem = clickedItem
                                         }
-
                                         else -> status = "$action not implemented yet: ${clickedItem.name}"
                                     }
                                 }
@@ -661,6 +675,58 @@ fun FilesScreen(
             }
         }
     }
+
+    if (showSettingsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettingsSheet = false }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                    .padding(bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Settings & info",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                SettingsStorageSection(
+                    storage = myStorage,
+                    storageStatus = storageStatus
+                )
+
+                Button(
+                    onClick = {
+                        showSettingsSheet = false
+                        refreshCurrent()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Refresh")
+                }
+
+                if (onLogout != null) {
+                    Button(
+                        onClick = {
+                            showSettingsSheet = false
+                            onLogout()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    ) {
+                        Text("Logout")
+                    }
+                }
+            }
+        }
+    }
+
     if (showCreateMenu) {
         ModalBottomSheet(
             onDismissRequest = { showCreateMenu = false }
@@ -724,15 +790,14 @@ fun FilesScreen(
             }
         }
     }
+
     if (newFolderDialogOpen) {
         AlertDialog(
             onDismissRequest = {
                 newFolderDialogOpen = false
                 newFolderName = ""
             },
-            title = {
-                Text("New folder")
-            },
+            title = { Text("New folder") },
             text = {
                 OutlinedTextField(
                     value = newFolderName,
@@ -742,11 +807,7 @@ fun FilesScreen(
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        createFolder(newFolderName)
-                    }
-                ) {
+                TextButton(onClick = { createFolder(newFolderName) }) {
                     Text("Create")
                 }
             },
@@ -762,15 +823,14 @@ fun FilesScreen(
             }
         )
     }
+
     if (newTextFileDialogOpen) {
         AlertDialog(
             onDismissRequest = {
                 newTextFileDialogOpen = false
                 newTextFileName = ""
             },
-            title = {
-                Text("New text file")
-            },
+            title = { Text("New text file") },
             text = {
                 OutlinedTextField(
                     value = newTextFileName,
@@ -780,11 +840,7 @@ fun FilesScreen(
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        createTextFile(newTextFileName)
-                    }
-                ) {
+                TextButton(onClick = { createTextFile(newTextFileName) }) {
                     Text("Create")
                 }
             },
@@ -800,6 +856,7 @@ fun FilesScreen(
             }
         )
     }
+
     infoItem?.let { item ->
         AlertDialog(
             onDismissRequest = { infoItem = null },
@@ -808,9 +865,7 @@ fun FilesScreen(
                     Text("OK")
                 }
             },
-            title = {
-                Text("Item info")
-            },
+            title = { Text("Item info") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Name: ${item.name}")
@@ -825,6 +880,7 @@ fun FilesScreen(
             }
         )
     }
+
     textEditItem?.let { item ->
         AlertDialog(
             onDismissRequest = {
@@ -850,11 +906,7 @@ fun FilesScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = if (textEditLoading) {
-                            "Loading..."
-                        } else {
-                            "Encoding: $textEditEncoding"
-                        },
+                        text = if (textEditLoading) "Loading..." else "Encoding: $textEditEncoding",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -896,15 +948,14 @@ fun FilesScreen(
             }
         )
     }
+
     renameItem?.let { item ->
         AlertDialog(
             onDismissRequest = {
                 renameItem = null
                 renameText = ""
             },
-            title = {
-                Text("Rename")
-            },
+            title = { Text("Rename") },
             text = {
                 OutlinedTextField(
                     value = renameText,
@@ -965,9 +1016,7 @@ fun FilesScreen(
     deleteItem?.let { item ->
         AlertDialog(
             onDismissRequest = { deleteItem = null },
-            title = {
-                Text("Delete")
-            },
+            title = { Text("Delete") },
             text = {
                 Text("Delete ${if (item.type == "dir") "folder" else "file"} \"${item.name}\"?")
             },
@@ -1000,6 +1049,7 @@ fun FilesScreen(
             }
         )
     }
+
     previewItem?.let { item ->
         AlertDialog(
             onDismissRequest = {
@@ -1044,15 +1094,13 @@ fun FilesScreen(
                     }
                 }
             },
-            title = {
-                Text(item.name)
-            },
+            title = { Text(item.name) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(previewStatus)
 
                     previewBitmap?.let { bmp ->
-                        androidx.compose.foundation.Image(
+                        Image(
                             bitmap = bmp.asImageBitmap(),
                             contentDescription = item.name,
                             modifier = Modifier.fillMaxWidth()
@@ -1062,6 +1110,7 @@ fun FilesScreen(
             }
         )
     }
+
     if (overwriteUploadTargetPath != null && overwriteUploadUri != null) {
         AlertDialog(
             onDismissRequest = {
@@ -1070,9 +1119,7 @@ fun FilesScreen(
                 pendingUploadUri = null
                 pendingUploadName = null
             },
-            title = {
-                Text("Replace file?")
-            },
+            title = { Text("Replace file?") },
             text = {
                 Text("A file with this name already exists. Do you want to replace it?")
             },
@@ -1106,6 +1153,100 @@ fun FilesScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SettingsStorageSection(
+    storage: MeStorageResponse?,
+    storageStatus: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Storage",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            when {
+                storage != null -> {
+                    val allocated = storage.storage_state == "allocated"
+                    val progress = if (storage.quota_bytes > 0L) {
+                        (storage.used_bytes.toFloat() / storage.quota_bytes.toFloat()).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+
+                    val accentColor = when (storage.warn_level?.lowercase(Locale.getDefault())) {
+                        "crit" -> MaterialTheme.colorScheme.error
+                        "warn" -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+
+                    if (!allocated) {
+                        Text(
+                            text = "Storage not allocated yet",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        Text(
+                            text = "${formatBytes(storage.used_bytes)} / ${formatBytes(storage.quota_bytes)}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(Modifier.height(4.dp))
+
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Text(
+                            text = "${storage.used_percent.toInt()}% used",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = accentColor
+                        )
+
+                        if (storage.partial) {
+                            Text(
+                                text = "Usage is approximate",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                storageStatus.isNotBlank() -> {
+                    Text(
+                        text = storageStatus,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                else -> {
+                    Text(
+                        text = "Storage info not loaded",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1234,7 +1375,7 @@ private fun FileIcon(
     }
 
     if (bitmap != null) {
-        androidx.compose.foundation.Image(
+        Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = if (item.type == "dir") "Directory icon" else "File icon",
             modifier = modifier
@@ -1283,6 +1424,7 @@ private fun isProbablyImageFile(name: String): Boolean {
     val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
     return ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico")
 }
+
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val units = arrayOf("KB", "MB", "GB", "TB", "PB")
@@ -1351,6 +1493,7 @@ private fun friendlyHttpMessage(
         }
     }
 }
+
 private fun queryDisplayName(context: Context, uri: Uri): String? {
     val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
     context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->

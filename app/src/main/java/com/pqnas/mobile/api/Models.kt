@@ -146,3 +146,17 @@ data class WriteTextResponse(
     val error: String? = null,
     val message: String? = null
 )
+data class MeStorageResponse(
+    val ok: Boolean,
+    val fingerprint_hex: String? = null,
+    val role: String? = null,
+    val storage_state: String? = null,
+    val quota_bytes: Long = 0L,
+    val used_bytes: Long = 0L,
+    val used_percent: Double = 0.0,
+    val warn_level: String? = null,
+    val scanned_entries: Long = 0L,
+    val partial: Boolean = false,
+    val ts: String? = null,
+    val note: String? = null
+)

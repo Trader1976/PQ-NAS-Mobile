@@ -15,6 +15,12 @@ class FilesRepository(
             accessTokenProvider = accessTokenProvider
         ).listFiles(path)
 
+    suspend fun getMyStorage() =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).getMyStorage()
+
     suspend fun download(path: String): ResponseBody =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),

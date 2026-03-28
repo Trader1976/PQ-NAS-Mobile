@@ -16,6 +16,9 @@ interface FilesApi {
         @Query("path") path: String? = null
     ): FilesListResponse
 
+    @GET("/api/v4/me/storage")
+    suspend fun getMyStorage(): MeStorageResponse
+
     @Streaming
     @GET("/api/v4/files/get")
     suspend fun downloadFile(
@@ -55,6 +58,4 @@ interface FilesApi {
         @Query("overwrite") overwrite: Int = 0,
         @Body body: RequestBody
     ): UploadFileResponse
-
-
 }
