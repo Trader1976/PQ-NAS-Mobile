@@ -1,6 +1,7 @@
 package com.pqnas.mobile.files
 
 import com.pqnas.mobile.api.ApiFactory
+import com.pqnas.mobile.api.FavoriteMutateRequest
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
@@ -21,6 +22,59 @@ class FilesRepository(
             accessTokenProvider = accessTokenProvider
         ).getMyStorage()
 
+    suspend fun getFavorites() =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).listFavorites()
+
+    suspend fun addFavorite(path: String, type: String) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).addFavorite(
+            FavoriteMutateRequest(
+                path = path,
+                type = if (type == "dir") "dir" else "file"
+            )
+        )
+
+    suspend fun removeFavorite(path: String, type: String) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).removeFavorite(
+            FavoriteMutateRequest(
+                path = path,
+                type = if (type == "dir") "dir" else "file"
+            )
+        )
+
+    suspend fun getShares() =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).listShares()
+
+    suspend fun createShare(path: String, type: String, expiresSec: Long = 86400L) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).createShare(
+            com.pqnas.mobile.api.CreateShareRequest(
+                path = path,
+                type = if (type == "dir") "dir" else "file",
+                expires_sec = expiresSec
+            )
+        )
+
+    suspend fun revokeShare(token: String) =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            accessTokenProvider = accessTokenProvider
+        ).revokeShare(
+            com.pqnas.mobile.api.RevokeShareRequest(token)
+        )
     suspend fun download(path: String): ResponseBody =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),

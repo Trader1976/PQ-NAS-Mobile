@@ -1,5 +1,7 @@
 package com.pqnas.mobile.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -87,6 +89,12 @@ fun FilesScreen(
     var status by remember { mutableStateOf("Loading...") }
     var myStorage by remember { mutableStateOf<MeStorageResponse?>(null) }
     var storageStatus by remember { mutableStateOf("") }
+    var favoritesOnly by remember { mutableStateOf(false) }
+
+    var shareDialogItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var shareDialogUrl by remember { mutableStateOf("") }
+    var shareDialogStatus by remember { mutableStateOf("") }
+    var shareDialogExistingToken by remember { mutableStateOf<String?>(null) }
 
     var showSettingsSheet by remember { mutableStateOf(false) }
 
@@ -130,15 +138,82 @@ fun FilesScreen(
     var newTextFileDialogOpen by remember { mutableStateOf(false) }
     var newTextFileName by remember { mutableStateOf("") }
 
+    fun normalizeRelPath(rel: String?): String {
+        return rel.orEmpty()
+            .replace("\\", "/")
+            .trim('/')
+            .split("/")
+            .filter { it.isNotBlank() }
+            .joinToString("/")
+    }
+
+    fun itemFullPath(item: FileItemDto): String {
+        return normalizeRelPath(buildItemPath(currentPath, item.name))
+    }
+
+    fun favoriteKey(type: String, path: String): String {
+        val t = if (type == "dir") "dir" else "file"
+        return "$t:${normalizeRelPath(path)}"
+    }
+
+    fun shareKey(type: String, path: String): String {
+        val t = if (type == "dir") "dir" else "file"
+        return "$t:${normalizeRelPath(path)}"
+    }
+
+    fun fullShareUrl(url: String?): String {
+        return url.orEmpty()
+    }
+
     fun load(path: String?) {
         scope.launch {
             status = "Loading..."
             try {
                 val resp = filesRepository.list(path)
-                items = resp.items.sortedWith(
-                    compareBy<FileItemDto> { it.type != "dir" }
-                        .thenBy { it.name.lowercase(Locale.getDefault()) }
-                )
+
+                val favs = try {
+                    filesRepository.getFavorites()
+                } catch (_: Exception) {
+                    null
+                }
+
+                val shares = try {
+                    filesRepository.getShares()
+                } catch (_: Exception) {
+                    null
+                }
+
+                val favoriteKeys = favs?.items?.map {
+                    favoriteKey(it.type, it.path)
+                }?.toSet() ?: emptySet()
+
+                val shareKeys = shares?.shares?.map {
+                    shareKey(it.type, it.path)
+                }?.toSet() ?: emptySet()
+
+                val mergedItems = resp.items
+                    .sortedWith(
+                        compareBy<FileItemDto> { it.type != "dir" }
+                            .thenBy { it.name.lowercase(Locale.getDefault()) }
+                    )
+                    .map { item ->
+                        val fullItemPath = buildItemPath(resp.path.ifBlank { null }, item.name)
+                        item.copy(
+                            isFavorite = favoriteKeys.contains(
+                                favoriteKey(item.type, fullItemPath)
+                            ),
+                            isShared = shareKeys.contains(
+                                shareKey(item.type, fullItemPath)
+                            )
+                        )
+                    }
+
+                items = if (favoritesOnly) {
+                    mergedItems.filter { it.isFavorite }
+                } else {
+                    mergedItems
+                }
+
                 currentPath = if (resp.path.isBlank()) null else resp.path
 
                 try {
@@ -158,6 +233,92 @@ fun FilesScreen(
 
     fun refreshCurrent() {
         load(currentPath)
+    }
+
+    fun openShareDialog(item: FileItemDto) {
+        shareDialogItem = item
+        shareDialogUrl = ""
+        shareDialogStatus = ""
+        shareDialogExistingToken = null
+
+        scope.launch {
+            try {
+                val fullPath = itemFullPath(item)
+                val shares = filesRepository.getShares()
+                val existing = shares.shares.firstOrNull {
+                    shareKey(it.type, it.path) == shareKey(item.type, fullPath)
+                }
+
+                if (existing != null) {
+                    shareDialogUrl = fullShareUrl(existing.url)
+                    shareDialogExistingToken = existing.token
+                    shareDialogStatus = "Already shared"
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun createShareFor(item: FileItemDto) {
+        scope.launch {
+            try {
+                val fullPath = itemFullPath(item)
+                shareDialogStatus = "Creating share..."
+                val resp = filesRepository.createShare(
+                    path = fullPath,
+                    type = item.type,
+                    expiresSec = 86400L
+                )
+                shareDialogUrl = fullShareUrl(resp.url)
+                shareDialogExistingToken = resp.token
+                shareDialogStatus = "Share link created"
+                load(currentPath)
+            } catch (e: Exception) {
+                val msg = friendlyHttpMessage("Share", e)
+                shareDialogStatus = msg
+                status = msg
+            }
+        }
+    }
+
+    fun revokeShareForCurrentDialog() {
+        val token = shareDialogExistingToken ?: return
+        scope.launch {
+            try {
+                shareDialogStatus = "Revoking share..."
+                filesRepository.revokeShare(token)
+                shareDialogUrl = ""
+                shareDialogExistingToken = null
+                shareDialogStatus = "Share revoked"
+                load(currentPath)
+            } catch (e: Exception) {
+                val msg = friendlyHttpMessage("Revoke share", e)
+                shareDialogStatus = msg
+                status = msg
+            }
+        }
+    }
+
+    fun toggleFavorite(item: FileItemDto) {
+        scope.launch {
+            try {
+                val fullPath = itemFullPath(item)
+                if (item.isFavorite) {
+                    filesRepository.removeFavorite(fullPath, item.type)
+                    status = "Removed from favorites: ${item.name}"
+                    snackbarHostState.showSnackbar("Removed from favorites: ${item.name}")
+                } else {
+                    filesRepository.addFavorite(fullPath, item.type)
+                    status = "Added to favorites: ${item.name}"
+                    snackbarHostState.showSnackbar("Added to favorites: ${item.name}")
+                }
+                load(currentPath)
+            } catch (e: Exception) {
+                val msg = friendlyHttpMessage("Favorites", e)
+                status = msg
+                snackbarHostState.showSnackbar(msg)
+            }
+        }
     }
 
     fun openImagePreview(item: FileItemDto) {
@@ -613,13 +774,16 @@ fun FilesScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "No files here",
+                            text = if (favoritesOnly) "No favorites here" else "No files here",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "This folder is empty or could not be loaded.",
+                            text = if (favoritesOnly)
+                                "This folder has no favorite items."
+                            else
+                                "This folder is empty or could not be loaded.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -642,9 +806,14 @@ fun FilesScreen(
                                         openTextEditor(item)
                                     }
                                 },
+                                onToggleFavorite = {
+                                    toggleFavorite(item)
+                                },
                                 onMenuAction = { action, clickedItem ->
                                     when (action) {
                                         "EditText" -> openTextEditor(clickedItem)
+                                        "ToggleFavorite" -> toggleFavorite(clickedItem)
+                                        "Share" -> openShareDialog(clickedItem)
                                         "Info" -> infoItem = clickedItem
                                         "Download" -> {
                                             if (clickedItem.type == "dir") {
@@ -697,6 +866,17 @@ fun FilesScreen(
                     storage = myStorage,
                     storageStatus = storageStatus
                 )
+
+                Button(
+                    onClick = {
+                        favoritesOnly = !favoritesOnly
+                        showSettingsSheet = false
+                        load(currentPath)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (favoritesOnly) "Show all items" else "Show favorites only")
+                }
 
                 Button(
                     onClick = {
@@ -870,6 +1050,8 @@ fun FilesScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Name: ${item.name}")
                     Text("Type: ${if (item.type == "dir") "Directory" else "File"}")
+                    Text("Favorite: ${if (item.isFavorite) "Yes" else "No"}")
+                    Text("Shared: ${if (item.isShared) "Yes" else "No"}")
                     Text("Size: ${if (item.type == "dir") "-" else formatBytes(item.size_bytes ?: 0)}")
                     Text(
                         "Modified: ${
@@ -1154,6 +1336,81 @@ fun FilesScreen(
             }
         )
     }
+
+    shareDialogItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = {
+                shareDialogItem = null
+                shareDialogUrl = ""
+                shareDialogStatus = ""
+                shareDialogExistingToken = null
+            },
+            title = { Text("Share") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(item.name)
+
+                    if (shareDialogUrl.isNotBlank()) {
+                        OutlinedTextField(
+                            value = shareDialogUrl,
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Share link") }
+                        )
+                    }
+
+                    if (shareDialogStatus.isNotBlank()) {
+                        Text(
+                            text = shareDialogStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (shareDialogUrl.isBlank()) {
+                        TextButton(
+                            onClick = { createShareFor(item) }
+                        ) {
+                            Text("Create")
+                        }
+                    } else {
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    val ok = copyText(context, shareDialogUrl)
+                                    shareDialogStatus = if (ok) "Copied" else "Copy failed"
+                                }
+                            }
+                        ) {
+                            Text("Copy")
+                        }
+
+                        TextButton(
+                            onClick = { revokeShareForCurrentDialog() }
+                        ) {
+                            Text("Revoke")
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        shareDialogItem = null
+                        shareDialogUrl = ""
+                        shareDialogStatus = ""
+                        shareDialogExistingToken = null
+                    }
+                ) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -1254,26 +1511,31 @@ private fun SettingsStorageSection(
 private fun FileRow(
     item: FileItemDto,
     onOpen: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onMenuAction: (String, FileItemDto) -> Unit
 ) {
     val isDir = item.type == "dir"
     var menuExpanded by remember { mutableStateOf(false) }
 
+    val typeAndSize = if (isDir) {
+        "Directory"
+    } else {
+        "File • ${formatBytes(item.size_bytes ?: 0)}"
+    }
+
+    val dateText = item.mtime_unix?.takeIf { it > 0 }?.let { formatUnixTime(it) } ?: ""
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onOpen)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top
     ) {
-        FileIcon(
-            item = item,
-            modifier = Modifier.size(28.dp)
-        )
-
         Column(
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = item.name,
@@ -1282,75 +1544,153 @@ private fun FileRow(
                 fontWeight = if (isDir) FontWeight.SemiBold else FontWeight.Normal
             )
 
-            Spacer(Modifier.height(4.dp))
-
-            Text(
-                text = buildMetaLine(item),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (isDir) {
-            Text(
-                text = "Open",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        Column(
-            horizontalAlignment = Alignment.End
-        ) {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "More actions"
-                )
-            }
-
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false }
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                if (!isDir && isProbablyImageFile(item.name)) {
-                    DropdownMenuItem(
-                        text = { Text("Open preview") },
-                        onClick = {
-                            menuExpanded = false
-                            onMenuAction("Preview", item)
-                        }
-                    )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.size(width = 20.dp, height = 40.dp)
+                ) {
+                    if (item.isFavorite) {
+                        Text(
+                            text = "★",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(18.dp))
+                    }
+
+                    if (item.isShared) {
+                        Text(
+                            text = "🔗",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
                 }
 
-                DropdownMenuItem(
-                    text = { Text("Download") },
-                    onClick = {
-                        menuExpanded = false
-                        onMenuAction("Download", item)
-                    }
+                FileIcon(
+                    item = item,
+                    modifier = Modifier.size(26.dp)
                 )
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    onClick = {
-                        menuExpanded = false
-                        onMenuAction("Rename", item)
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = typeAndSize,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (dateText.isNotBlank()) {
+                        Text(
+                            text = dateText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                )
-                DropdownMenuItem(
-                    text = { Text("Delete") },
-                    onClick = {
-                        menuExpanded = false
-                        onMenuAction("Delete", item)
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    if (isDir) {
+                        Text(
+                            text = "Open",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
-                )
-                DropdownMenuItem(
-                    text = { Text("Info") },
-                    onClick = {
-                        menuExpanded = false
-                        onMenuAction("Info", item)
+
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More actions"
+                        )
                     }
-                )
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(if (item.isFavorite) "Remove from favorites" else "Add to favorites") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("ToggleFavorite", item)
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text(if (item.isShared) "Shared…" else "Share") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("Share", item)
+                            }
+                        )
+
+                        if (!isDir && isProbablyImageFile(item.name)) {
+                            DropdownMenuItem(
+                                text = { Text("Open preview") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onMenuAction("Preview", item)
+                                }
+                            )
+                        }
+
+                        if (!isDir && isProbablyTextFile(item.name)) {
+                            DropdownMenuItem(
+                                text = { Text("Edit text") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onMenuAction("EditText", item)
+                                }
+                            )
+                        }
+
+                        DropdownMenuItem(
+                            text = { Text("Download") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("Download", item)
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Rename") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("Rename", item)
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("Delete", item)
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Info") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("Info", item)
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -1386,25 +1726,6 @@ private fun FileIcon(
             modifier = modifier,
             style = MaterialTheme.typography.titleMedium
         )
-    }
-}
-
-private fun buildMetaLine(item: FileItemDto): String {
-    val validTime = item.mtime_unix?.takeIf { it > 0 }
-
-    if (item.type == "dir") {
-        return validTime?.let {
-            "Directory • ${formatUnixTime(it)}"
-        } ?: "Directory"
-    }
-
-    val sizeText = formatBytes(item.size_bytes ?: 0)
-    val timeText = validTime?.let { formatUnixTime(it) }
-
-    return if (timeText != null) {
-        "File • $sizeText • $timeText"
-    } else {
-        "File • $sizeText"
     }
 }
 
@@ -1455,6 +1776,19 @@ private suspend fun saveDownloadedFile(
             out.write(bytes)
             out.flush()
         } ?: throw IllegalStateException("Could not open output stream")
+    }
+}
+
+private suspend fun copyText(context: Context, text: String): Boolean {
+    return try {
+        withContext(Dispatchers.Main) {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("share link", text)
+            clipboard.setPrimaryClip(clip)
+        }
+        true
+    } catch (_: Exception) {
+        false
     }
 }
 

@@ -60,7 +60,9 @@ data class FileItemDto(
     val name: String,
     val type: String,
     val size_bytes: Long? = null,
-    val mtime_unix: Long? = null
+    val mtime_unix: Long? = null,
+    val isFavorite: Boolean = false,
+    val isShared: Boolean = false
 )
 
 data class FilesListResponse(
@@ -68,6 +70,29 @@ data class FilesListResponse(
     val path: String,
     val items: List<FileItemDto>,
     val fingerprint_hex: String? = null
+)
+
+data class FavoriteItemDto(
+    val path: String,
+    val type: String
+)
+
+data class FavoritesListResponse(
+    val ok: Boolean,
+    val items: List<FavoriteItemDto> = emptyList()
+)
+
+data class FavoriteMutateRequest(
+    val path: String,
+    val type: String
+)
+
+data class FavoriteMutateResponse(
+    val ok: Boolean,
+    val path: String? = null,
+    val type: String? = null,
+    val error: String? = null,
+    val message: String? = null
 )
 
 data class PairConsumeRequest(
@@ -120,6 +145,7 @@ data class MkdirResponse(
     val ok: Boolean,
     val path: String
 )
+
 data class ReadTextResponse(
     val ok: Boolean,
     val path: String? = null,
@@ -146,6 +172,7 @@ data class WriteTextResponse(
     val error: String? = null,
     val message: String? = null
 )
+
 data class MeStorageResponse(
     val ok: Boolean,
     val fingerprint_hex: String? = null,
@@ -159,4 +186,42 @@ data class MeStorageResponse(
     val partial: Boolean = false,
     val ts: String? = null,
     val note: String? = null
+)
+data class ShareItemDto(
+    val token: String? = null,
+    val path: String,
+    val type: String,
+    val url: String? = null,
+    val expires_at: String? = null,
+    val downloads: Long? = null
+)
+
+data class SharesListResponse(
+    val ok: Boolean,
+    val shares: List<ShareItemDto> = emptyList()
+)
+
+data class CreateShareRequest(
+    val path: String,
+    val type: String,
+    val expires_sec: Long = 86400L
+)
+
+data class CreateShareResponse(
+    val ok: Boolean,
+    val url: String? = null,
+    val token: String? = null,
+    val error: String? = null,
+    val message: String? = null,
+    val detail: String? = null
+)
+
+data class RevokeShareRequest(
+    val token: String
+)
+
+data class RevokeShareResponse(
+    val ok: Boolean,
+    val error: String? = null,
+    val message: String? = null
 )

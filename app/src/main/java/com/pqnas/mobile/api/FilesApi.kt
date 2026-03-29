@@ -58,4 +58,34 @@ interface FilesApi {
         @Query("overwrite") overwrite: Int = 0,
         @Body body: RequestBody
     ): UploadFileResponse
+
+    @GET("/api/v4/files/favorites")
+    suspend fun listFavorites(): FavoritesListResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/files/favorites/add")
+    suspend fun addFavorite(
+        @Body request: FavoriteMutateRequest
+    ): FavoriteMutateResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/files/favorites/remove")
+    suspend fun removeFavorite(
+        @Body request: FavoriteMutateRequest
+    ): FavoriteMutateResponse
+
+    @GET("/api/v4/shares/list")
+    suspend fun listShares(): SharesListResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/shares/create")
+    suspend fun createShare(
+        @Body request: CreateShareRequest
+    ): CreateShareResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/shares/revoke")
+    suspend fun revokeShare(
+        @Body request: RevokeShareRequest
+    ): RevokeShareResponse
 }
