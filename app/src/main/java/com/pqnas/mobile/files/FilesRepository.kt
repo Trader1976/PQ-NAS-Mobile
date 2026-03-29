@@ -16,6 +16,8 @@ class FilesRepository(
             accessTokenProvider = accessTokenProvider
         ).listFiles(path)
 
+    fun baseUrlForDisplay(): String = baseUrlProvider()
+
     suspend fun getMyStorage() =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),

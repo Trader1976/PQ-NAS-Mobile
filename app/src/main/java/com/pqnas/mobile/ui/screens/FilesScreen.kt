@@ -162,7 +162,15 @@ fun FilesScreen(
     }
 
     fun fullShareUrl(url: String?): String {
-        return url.orEmpty()
+        if (url.isNullOrBlank()) return ""
+
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url
+        }
+
+        val base = filesRepository.baseUrlForDisplay().trim().trimEnd('/')
+        val rel = if (url.startsWith("/")) url else "/$url"
+        return "$base$rel"
     }
 
     fun load(path: String?) {
