@@ -4,10 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
+
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -103,19 +105,10 @@ fun FilesScreen(
     var renameItem by remember { mutableStateOf<FileItemDto?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteItem by remember { mutableStateOf<FileItemDto?>(null) }
-    var previewItem by remember { mutableStateOf<FileItemDto?>(null) }
-    var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var previewStatus by remember { mutableStateOf("") }
-    var previewIndex by remember { mutableStateOf(-1) }
-
-    var textEditItem by remember { mutableStateOf<FileItemDto?>(null) }
-    var textEditText by remember { mutableStateOf("") }
-    var textEditOriginalText by remember { mutableStateOf("") }
-    var textEditEncoding by remember { mutableStateOf("utf-8") }
-    var textEditMtimeEpoch by remember { mutableStateOf<Long?>(null) }
-    var textEditSha256 by remember { mutableStateOf<String?>(null) }
-    var textEditLoading by remember { mutableStateOf(false) }
-    var textEditSaving by remember { mutableStateOf(false) }
+    var imagePreviewItems by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
+    var imagePreviewStartIndex by remember { mutableStateOf<Int?>(null) }
+    var textEditorPath by remember { mutableStateOf<String?>(null) }
+    var textEditorName by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -335,116 +328,20 @@ fun FilesScreen(
 
         val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
         val idx = visibleImages.indexOfFirst { it.name == item.name }
+        if (idx < 0) return
 
-        previewItem = item
-        previewBitmap = null
-        previewStatus = "Loading..."
-        previewIndex = idx
-
-        scope.launch {
-            try {
-                val fullPath = buildItemPath(currentPath, item.name)
-                val body = filesRepository.download(fullPath)
-                val bytes = withContext(Dispatchers.IO) { body.bytes() }
-
-                val bmp = withContext(Dispatchers.Default) {
-                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                }
-
-                if (bmp == null) {
-                    previewStatus = "Failed to decode image"
-                } else {
-                    previewBitmap = bmp
-                    previewStatus = "${bmp.width} × ${bmp.height}"
-                }
-            } catch (e: Exception) {
-                previewStatus = friendlyHttpMessage("Preview", e)
-            }
-        }
+        imagePreviewItems = visibleImages
+        imagePreviewStartIndex = idx
     }
 
     fun openTextEditor(item: FileItemDto) {
         if (item.type != "file") return
         if (!isProbablyTextFile(item.name)) return
 
-        textEditItem = item
-        textEditText = ""
-        textEditOriginalText = ""
-        textEditEncoding = "utf-8"
-        textEditMtimeEpoch = null
-        textEditSha256 = null
-        textEditLoading = true
-        textEditSaving = false
-        status = "Loading text file..."
-
-        scope.launch {
-            try {
-                val fullPath = buildItemPath(currentPath, item.name)
-                val resp = filesRepository.readText(fullPath)
-
-                textEditText = resp.text ?: ""
-                textEditOriginalText = resp.text ?: ""
-                textEditEncoding = resp.encoding ?: "utf-8"
-                textEditMtimeEpoch = resp.mtime_epoch
-                textEditSha256 = resp.sha256
-                textEditLoading = false
-                status = "OK"
-            } catch (e: Exception) {
-                textEditLoading = false
-                val msg = friendlyHttpMessage("Read text", e)
-                status = msg
-                snackbarHostState.showSnackbar(msg)
-                textEditItem = null
-            }
-        }
+        textEditorPath = buildItemPath(currentPath, item.name)
+        textEditorName = item.name
     }
 
-    fun saveTextEditor() {
-        val item = textEditItem ?: return
-        val newText = textEditText
-
-        textEditSaving = true
-        status = "Saving ${item.name}..."
-
-        scope.launch {
-            try {
-                val fullPath = buildItemPath(currentPath, item.name)
-                val resp = filesRepository.writeText(
-                    path = fullPath,
-                    text = newText,
-                    expectedMtimeEpoch = textEditMtimeEpoch,
-                    expectedSha256 = textEditSha256
-                )
-
-                textEditOriginalText = newText
-                textEditMtimeEpoch = resp.mtime_epoch
-                textEditSha256 = resp.sha256
-                textEditSaving = false
-                status = "OK"
-                snackbarHostState.showSnackbar("Saved ${item.name}")
-                load(currentPath)
-            } catch (e: Exception) {
-                textEditSaving = false
-                val msg = friendlyHttpMessage("Write text", e)
-                status = msg
-                snackbarHostState.showSnackbar(msg)
-            }
-        }
-    }
-
-    fun openAdjacentImage(step: Int) {
-        val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
-        if (visibleImages.isEmpty()) return
-
-        val current = previewItem ?: return
-        val curIdx = visibleImages.indexOfFirst { it.name == current.name }
-        if (curIdx < 0) return
-
-        val nextIdx = curIdx + step
-        if (nextIdx !in visibleImages.indices) return
-
-        openImagePreview(visibleImages[nextIdx])
-    }
 
     fun parentPath(path: String?): String? {
         if (path.isNullOrBlank()) return null
@@ -639,8 +536,10 @@ fun FilesScreen(
     LaunchedEffect(Unit) {
         load(null)
     }
-
-    Scaffold(
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
@@ -819,6 +718,7 @@ fun FilesScreen(
                                 },
                                 onMenuAction = { action, clickedItem ->
                                     when (action) {
+                                        "Preview" -> openImagePreview(clickedItem)
                                         "EditText" -> openTextEditor(clickedItem)
                                         "ToggleFavorite" -> toggleFavorite(clickedItem)
                                         "Share" -> openShareDialog(clickedItem)
@@ -1071,74 +971,6 @@ fun FilesScreen(
         )
     }
 
-    textEditItem?.let { item ->
-        AlertDialog(
-            onDismissRequest = {
-                if (!textEditSaving) {
-                    textEditItem = null
-                    textEditText = ""
-                    textEditOriginalText = ""
-                    textEditEncoding = "utf-8"
-                    textEditMtimeEpoch = null
-                    textEditSha256 = null
-                }
-            },
-            title = {
-                Column {
-                    Text("Edit text file")
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = if (textEditLoading) "Loading..." else "Encoding: $textEditEncoding",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    OutlinedTextField(
-                        value = textEditText,
-                        onValueChange = { textEditText = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(320.dp),
-                        enabled = !textEditLoading && !textEditSaving,
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                        singleLine = false
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { saveTextEditor() },
-                    enabled = !textEditLoading && !textEditSaving && textEditText != textEditOriginalText
-                ) {
-                    Text(if (textEditSaving) "Saving..." else "Save")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        textEditItem = null
-                        textEditText = ""
-                        textEditOriginalText = ""
-                        textEditEncoding = "utf-8"
-                        textEditMtimeEpoch = null
-                        textEditSha256 = null
-                    },
-                    enabled = !textEditSaving
-                ) {
-                    Text("Close")
-                }
-            }
-        )
-    }
-
     renameItem?.let { item ->
         AlertDialog(
             onDismissRequest = {
@@ -1235,67 +1067,6 @@ fun FilesScreen(
             dismissButton = {
                 TextButton(onClick = { deleteItem = null }) {
                     Text("Cancel")
-                }
-            }
-        )
-    }
-
-    previewItem?.let { item ->
-        AlertDialog(
-            onDismissRequest = {
-                previewItem = null
-                previewBitmap = null
-                previewStatus = ""
-                previewIndex = -1
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        onClick = { openAdjacentImage(-1) },
-                        enabled = run {
-                            val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
-                            val idx = visibleImages.indexOfFirst { it.name == item.name }
-                            idx > 0
-                        }
-                    ) {
-                        Text("Prev")
-                    }
-
-                    TextButton(
-                        onClick = { openAdjacentImage(1) },
-                        enabled = run {
-                            val visibleImages = items.filter { it.type == "file" && isProbablyImageFile(it.name) }
-                            val idx = visibleImages.indexOfFirst { it.name == item.name }
-                            idx >= 0 && idx < visibleImages.lastIndex
-                        }
-                    ) {
-                        Text("Next")
-                    }
-
-                    TextButton(
-                        onClick = {
-                            previewItem = null
-                            previewBitmap = null
-                            previewStatus = ""
-                            previewIndex = -1
-                        }
-                    ) {
-                        Text("Close")
-                    }
-                }
-            },
-            title = { Text(item.name) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(previewStatus)
-
-                    previewBitmap?.let { bmp ->
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = item.name,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
                 }
             }
         )
@@ -1418,6 +1189,33 @@ fun FilesScreen(
                 }
             }
         )
+    }
+        if (imagePreviewStartIndex != null && imagePreviewItems.isNotEmpty()) {
+            ImagePreviewScreen(
+                filesRepository = filesRepository,
+                currentPath = currentPath,
+                images = imagePreviewItems,
+                initialIndex = imagePreviewStartIndex!!,
+                onClose = {
+                    imagePreviewStartIndex = null
+                    imagePreviewItems = emptyList()
+                }
+            )
+        }
+    if (textEditorPath != null && textEditorName != null) {
+            TextEditorScreen(
+                filesRepository = filesRepository,
+                relPath = textEditorPath!!,
+                displayName = textEditorName!!,
+                onClose = {
+                    textEditorPath = null
+                    textEditorName = null
+                },
+                onSaved = {
+                    load(currentPath)
+                }
+            )
+        }
     }
 }
 
