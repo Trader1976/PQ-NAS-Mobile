@@ -20,7 +20,6 @@ import com.pqnas.mobile.ui.theme.PQNASTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         setContent {
             PQNASTheme {
             val context = LocalContext.current
@@ -29,13 +28,11 @@ class MainActivity : ComponentActivity() {
 
             var screen by remember { mutableStateOf("server") }
             var baseUrl by remember { mutableStateOf("") }
-            var accessToken by remember { mutableStateOf("") }
             var pairPayload by remember { mutableStateOf<PairQrPayload?>(null) }
 
             LaunchedEffect(Unit) {
                 val state = tokenStore.authState.first()
                 baseUrl = state.baseUrl
-                accessToken = state.accessToken
                 screen = if (state.isLoggedIn) "files" else "server"
             }
 
@@ -59,7 +56,6 @@ class MainActivity : ComponentActivity() {
                     onLoggedIn = {
                         runBlocking {
                             val s = tokenStore.authState.first()
-                            accessToken = s.accessToken
                             baseUrl = s.baseUrl
                         }
                         screen = "files"
@@ -87,7 +83,6 @@ class MainActivity : ComponentActivity() {
                             onPaired = {
                                 runBlocking {
                                     val s = tokenStore.authState.first()
-                                    accessToken = s.accessToken
                                     baseUrl = s.baseUrl
                                 }
                                 screen = "files"
@@ -100,10 +95,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 "files" -> {
-                    val filesRepository = remember(baseUrl, accessToken) {
+                    val filesRepository = remember(tokenStore, baseUrl) {
                         FilesRepository(
-                            baseUrlProvider = { baseUrl },
-                            accessTokenProvider = { accessToken }
+                            tokenStore = tokenStore,
+                            baseUrlProvider = { baseUrl }
                         )
                     }
                     FilesScreen(
@@ -112,7 +107,6 @@ class MainActivity : ComponentActivity() {
                             runBlocking {
                                 tokenStore.clearAll()
                             }
-                            accessToken = ""
                             baseUrl = ""
                             screen = "server"
                         }

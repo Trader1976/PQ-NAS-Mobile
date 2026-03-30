@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
@@ -46,9 +47,13 @@ class TokenStore(private val context: Context) {
                 baseUrl = prefs[Keys.BASE_URL] ?: "",
                 accessToken = prefs[Keys.ACCESS_TOKEN] ?: "",
                 refreshToken = prefs[Keys.REFRESH_TOKEN] ?: "",
-                deviceId = prefs[Keys.DEVICE_ID] ?: ""
+                deviceId = prefs[Keys.DEVICE_ID] ?: "",
+                fingerprintHex = prefs[Keys.FINGERPRINT_HEX] ?: "",
+                role = prefs[Keys.ROLE] ?: ""
             )
         }
+
+    suspend fun getAuthStateOnce(): AuthState = authState.first()
 
     suspend fun saveBaseUrl(baseUrl: String) {
         context.dataStore.edit { prefs ->
@@ -69,6 +74,20 @@ class TokenStore(private val context: Context) {
             prefs[Keys.DEVICE_ID] = deviceId
             prefs[Keys.FINGERPRINT_HEX] = fingerprintHex
             prefs[Keys.ROLE] = role
+        }
+    }
+
+    suspend fun updateAfterRefresh(
+        accessToken: String,
+        deviceId: String = "",
+        fingerprintHex: String = "",
+        role: String = ""
+    ) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.ACCESS_TOKEN] = accessToken
+            if (deviceId.isNotBlank()) prefs[Keys.DEVICE_ID] = deviceId
+            if (fingerprintHex.isNotBlank()) prefs[Keys.FINGERPRINT_HEX] = fingerprintHex
+            if (role.isNotBlank()) prefs[Keys.ROLE] = role
         }
     }
 
