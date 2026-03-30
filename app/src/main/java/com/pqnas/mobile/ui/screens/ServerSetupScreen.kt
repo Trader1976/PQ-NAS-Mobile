@@ -20,7 +20,6 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun ServerSetupScreen(
-    onContinueLegacy: (String) -> Unit,
     onScanPair: (String) -> Unit
 ) {
     var baseUrl by remember { mutableStateOf("https://pqnas-dev.pqnas-test.uk") }
@@ -39,7 +38,7 @@ fun ServerSetupScreen(
         )
 
         Text(
-            text = "Connect securely with trusted-device pairing or use the legacy QR login flow.",
+            text = "Connect securely with trusted-device pairing.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -70,20 +69,13 @@ fun ServerSetupScreen(
                 ) {
                     Text("Scan pairing QR")
                 }
-
-                Button(
-                    onClick = { onContinueLegacy(baseUrl) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Legacy QR login")
-                }
             }
         }
 
         Spacer(Modifier.height(4.dp))
 
         Text(
-            text = "Preferred: open Trusted Devices in DNA-Nexus web UI, show the QR, then scan it here.",
+            text = "Open Trusted Devices in the DNA-Nexus web UI, show the QR code, then scan it here.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -11,108 +11,93 @@ import com.pqnas.mobile.auth.TokenStore
 import com.pqnas.mobile.files.FilesRepository
 import com.pqnas.mobile.ui.screens.FilesScreen
 import com.pqnas.mobile.ui.screens.PairConfirmScreen
-import com.pqnas.mobile.ui.screens.QrLoginScreen
 import com.pqnas.mobile.ui.screens.ScanPairQrScreen
 import com.pqnas.mobile.ui.screens.ServerSetupScreen
+import com.pqnas.mobile.ui.theme.PQNASTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import com.pqnas.mobile.ui.theme.PQNASTheme
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
             PQNASTheme {
-            val context = LocalContext.current
-            val tokenStore = remember { TokenStore(context) }
-            val authRepository = remember { AuthRepository(tokenStore) }
+                val context = LocalContext.current
+                val tokenStore = remember { TokenStore(context) }
+                val authRepository = remember { AuthRepository(tokenStore) }
 
-            var screen by remember { mutableStateOf("server") }
-            var baseUrl by remember { mutableStateOf("") }
-            var pairPayload by remember { mutableStateOf<PairQrPayload?>(null) }
+                var screen by remember { mutableStateOf("server") }
+                var baseUrl by remember { mutableStateOf("") }
+                var pairPayload by remember { mutableStateOf<PairQrPayload?>(null) }
 
-            LaunchedEffect(Unit) {
-                val state = tokenStore.authState.first()
-                baseUrl = state.baseUrl
-                screen = if (state.isLoggedIn) "files" else "server"
-            }
-
-            when (screen) {
-                "server" -> ServerSetupScreen(
-                    onContinueLegacy = { url ->
-                        runBlocking { tokenStore.saveBaseUrl(url) }
-                        baseUrl = url
-                        screen = "qr"
-                    },
-                    onScanPair = { url ->
-                        runBlocking { tokenStore.saveBaseUrl(url) }
-                        baseUrl = url
-                        screen = "scan_pair"
-                    }
-                )
-
-                "qr" -> QrLoginScreen(
-                    baseUrl = baseUrl,
-                    authRepository = authRepository,
-                    onLoggedIn = {
-                        runBlocking {
-                            val s = tokenStore.authState.first()
-                            baseUrl = s.baseUrl
-                        }
-                        screen = "files"
-                    }
-                )
-
-                "scan_pair" -> ScanPairQrScreen(
-                    onParsed = { payload ->
-                        pairPayload = payload
-                        screen = "pair_confirm"
-                    },
-                    onBack = {
-                        screen = "server"
-                    }
-                )
-
-                "pair_confirm" -> {
-                    val payload = pairPayload
-                    if (payload == null) {
-                        screen = "server"
-                    } else {
-                        PairConfirmScreen(
-                            payload = payload,
-                            authRepository = authRepository,
-                            onPaired = {
-                                runBlocking {
-                                    val s = tokenStore.authState.first()
-                                    baseUrl = s.baseUrl
-                                }
-                                screen = "files"
-                            },
-                            onBack = {
-                                screen = "scan_pair"
-                            }
-                        )
-                    }
+                LaunchedEffect(Unit) {
+                    val state = tokenStore.authState.first()
+                    baseUrl = state.baseUrl
+                    screen = if (state.isLoggedIn) "files" else "server"
                 }
 
-                "files" -> {
-                    val filesRepository = remember(tokenStore, baseUrl) {
-                        FilesRepository(
-                            tokenStore = tokenStore,
-                            baseUrlProvider = { baseUrl }
-                        )
-                    }
-                    FilesScreen(
-                        filesRepository = filesRepository,
-                        onLogout = {
-                            runBlocking {
-                                tokenStore.clearAll()
-                            }
-                            baseUrl = ""
+                when (screen) {
+                    "server" -> ServerSetupScreen(
+                        onScanPair = { url ->
+                            runBlocking { tokenStore.saveBaseUrl(url) }
+                            baseUrl = url
+                            screen = "scan_pair"
+                        }
+                    )
+
+                    "scan_pair" -> ScanPairQrScreen(
+                        onParsed = { payload ->
+                            pairPayload = payload
+                            screen = "pair_confirm"
+                        },
+                        onBack = {
                             screen = "server"
                         }
                     )
+
+                    "pair_confirm" -> {
+                        val payload = pairPayload
+                        if (payload == null) {
+                            screen = "server"
+                        } else {
+                            PairConfirmScreen(
+                                payload = payload,
+                                authRepository = authRepository,
+                                onPaired = {
+                                    runBlocking {
+                                        val s = tokenStore.authState.first()
+                                        baseUrl = s.baseUrl
+                                    }
+                                    screen = "files"
+                                },
+                                onBack = {
+                                    screen = "scan_pair"
+                                }
+                            )
+                        }
+                    }
+
+                    "files" -> {
+                        val filesRepository = remember(tokenStore, baseUrl) {
+                            FilesRepository(
+                                tokenStore = tokenStore,
+                                baseUrlProvider = { baseUrl }
+                            )
+                        }
+                        FilesScreen(
+                            filesRepository = filesRepository,
+                            onLogout = {
+                                runBlocking {
+                                    tokenStore.clearAll()
+                                }
+                                baseUrl = ""
+                                screen = "server"
+                            }
+                        )
+                    }
                 }
             }
         }
     }
-}}
+}

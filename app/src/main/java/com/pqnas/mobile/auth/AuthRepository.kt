@@ -2,61 +2,13 @@ package com.pqnas.mobile.auth
 
 import android.os.Build
 import com.pqnas.mobile.api.ApiFactory
-import com.pqnas.mobile.api.ConsumeAppRequest
-import kotlinx.coroutines.delay
+import com.pqnas.mobile.api.PairConsumeRequest
 
 class AuthRepository(
     private val tokenStore: TokenStore
 ) {
     suspend fun saveBaseUrl(baseUrl: String) {
         tokenStore.saveBaseUrl(baseUrl)
-    }
-
-    suspend fun startSession(baseUrl: String) =
-        ApiFactory.createAuthApi(baseUrl).startSession()
-
-    suspend fun waitForApproval(baseUrl: String, k: String, maxPolls: Int = 60): Boolean {
-        val api = ApiFactory.createAuthApi(baseUrl)
-        repeat(maxPolls) {
-            val status = api.getStatus(k)
-            if (status.approved == true) return true
-            if (status.pending != true && status.approved != true) return false
-            delay(2000)
-        }
-        return false
-    }
-
-    suspend fun consumeApp(baseUrl: String, k: String): Boolean {
-        val api = ApiFactory.createAuthApi(baseUrl)
-
-        val manufacturer = Build.MANUFACTURER ?: ""
-        val model = Build.MODEL ?: ""
-        val osVersion = "Android ${Build.VERSION.RELEASE ?: ""}".trim()
-        android.util.Log.d(
-            "PQNAS_AUTH",
-            "app metadata manufacturer='$manufacturer' model='$model' os='$osVersion'"
-        )
-        val resp = api.consumeApp(
-            ConsumeAppRequest(
-                k = k,
-                device_name = "DNA-Nexus Android",
-                platform = "android",
-                app_version = "0.1.0",
-                device_model = model,
-                device_manufacturer = manufacturer,
-                os_version = osVersion
-            )
-        )
-
-        tokenStore.saveTokens(
-            accessToken = resp.access_token,
-            refreshToken = resp.refresh_token,
-            deviceId = resp.device_id,
-            fingerprintHex = resp.fingerprint_hex,
-            role = resp.role
-        )
-
-        return resp.ok
     }
 
     suspend fun consumePair(
@@ -70,14 +22,13 @@ class AuthRepository(
         val model = Build.MODEL ?: ""
         val osVersion = "Android ${Build.VERSION.RELEASE ?: ""}".trim()
 
-
         android.util.Log.d(
             "PQNAS_PAIR",
             "pair metadata manufacturer='$manufacturer' model='$model' os='$osVersion'"
         )
 
         val resp = api.consumePair(
-            com.pqnas.mobile.api.PairConsumeRequest(
+            PairConsumeRequest(
                 pair_token = pairToken,
                 device_name = deviceName,
                 platform = "android",
