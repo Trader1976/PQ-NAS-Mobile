@@ -164,7 +164,7 @@ data class SharesListResponse(
 data class CreateShareRequest(
     val path: String,
     val type: String,
-    val expires_sec: Long = 86400L
+    val expires_sec: Long? = null
 )
 
 data class CreateShareResponse(

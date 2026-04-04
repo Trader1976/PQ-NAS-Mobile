@@ -79,6 +79,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
+import androidx.compose.material3.RadioButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,8 +98,10 @@ fun FilesScreen(
     var shareDialogUrl by remember { mutableStateOf("") }
     var shareDialogStatus by remember { mutableStateOf("") }
     var shareDialogExistingToken by remember { mutableStateOf<String?>(null) }
+    var shareDialogExpiry by remember { mutableStateOf(defaultShareExpiryOption()) }
 
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showSharesManager by remember { mutableStateOf(false) }
 
     var infoItem by remember { mutableStateOf<FileItemDto?>(null) }
     var pendingDownloadItem by remember { mutableStateOf<FileItemDto?>(null) }
@@ -241,6 +244,7 @@ fun FilesScreen(
         shareDialogUrl = ""
         shareDialogStatus = ""
         shareDialogExistingToken = null
+        shareDialogExpiry = defaultShareExpiryOption()
 
         scope.launch {
             try {
@@ -260,7 +264,7 @@ fun FilesScreen(
         }
     }
 
-    fun createShareFor(item: FileItemDto) {
+    fun createShareFor(item: FileItemDto, expiresSec: Long?) {
         scope.launch {
             try {
                 val fullPath = itemFullPath(item)
@@ -268,11 +272,11 @@ fun FilesScreen(
                 val resp = filesRepository.createShare(
                     path = fullPath,
                     type = item.type,
-                    expiresSec = 86400L
+                    expiresSec = expiresSec
                 )
                 shareDialogUrl = fullShareUrl(resp.url)
                 shareDialogExistingToken = resp.token
-                shareDialogStatus = "Share link created"
+                shareDialogStatus = "Share link created (${shareExpiryLabel(expiresSec)})"
                 load(currentPath)
             } catch (e: Exception) {
                 val msg = friendlyHttpMessage("Share", e)
@@ -795,7 +799,15 @@ fun FilesScreen(
                 ) {
                     Text("Refresh")
                 }
-
+                Button(
+                    onClick = {
+                        showSettingsSheet = false
+                        showSharesManager = true
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Share manager")
+                }
                 if (onLogout != null) {
                     Button(
                         onClick = {
@@ -1116,80 +1128,116 @@ fun FilesScreen(
         )
     }
 
-    shareDialogItem?.let { item ->
-        AlertDialog(
-            onDismissRequest = {
-                shareDialogItem = null
-                shareDialogUrl = ""
-                shareDialogStatus = ""
-                shareDialogExistingToken = null
-            },
-            title = { Text("Share") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(item.name)
+        shareDialogItem?.let { item ->
+            AlertDialog(
+                onDismissRequest = {
+                    shareDialogItem = null
+                    shareDialogUrl = ""
+                    shareDialogStatus = ""
+                    shareDialogExistingToken = null
+                    shareDialogExpiry = defaultShareExpiryOption()
+                },
+                title = { Text("Share") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(item.name)
 
-                    if (shareDialogUrl.isNotBlank()) {
-                        OutlinedTextField(
-                            value = shareDialogUrl,
-                            onValueChange = {},
-                            readOnly = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Share link") }
-                        )
-                    }
+                        if (shareDialogUrl.isBlank()) {
+                            Text(
+                                text = "Valid for",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
 
-                    if (shareDialogStatus.isNotBlank()) {
-                        Text(
-                            text = shareDialogStatus,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (shareDialogUrl.isBlank()) {
-                        TextButton(
-                            onClick = { createShareFor(item) }
-                        ) {
-                            Text("Create")
-                        }
-                    } else {
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    val ok = copyText(context, shareDialogUrl)
-                                    shareDialogStatus = if (ok) "Copied" else "Copy failed"
+                            SHARE_EXPIRY_OPTIONS.forEach { option ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { shareDialogExpiry = option }
+                                        .padding(vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = shareDialogExpiry == option,
+                                        onClick = { shareDialogExpiry = option }
+                                    )
+                                    Text(
+                                        text = option.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
                             }
-                        ) {
-                            Text("Copy")
                         }
 
-                        TextButton(
-                            onClick = { revokeShareForCurrentDialog() }
-                        ) {
-                            Text("Revoke")
+                        if (shareDialogUrl.isNotBlank()) {
+                            OutlinedTextField(
+                                value = shareDialogUrl,
+                                onValueChange = {},
+                                readOnly = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Share link") }
+                            )
+
+                            Text(
+                                text = "To change link validity, revoke this link and create a new one.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (shareDialogStatus.isNotBlank()) {
+                            Text(
+                                text = shareDialogStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        shareDialogItem = null
-                        shareDialogUrl = ""
-                        shareDialogStatus = ""
-                        shareDialogExistingToken = null
+                },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (shareDialogUrl.isBlank()) {
+                            TextButton(
+                                onClick = { createShareFor(item, shareDialogExpiry.expiresSec) }
+                            ) {
+                                Text("Create")
+                            }
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        val ok = copyText(context, shareDialogUrl)
+                                        shareDialogStatus = if (ok) "Copied" else "Copy failed"
+                                    }
+                                }
+                            ) {
+                                Text("Copy")
+                            }
+
+                            TextButton(
+                                onClick = { revokeShareForCurrentDialog() }
+                            ) {
+                                Text("Revoke")
+                            }
+                        }
                     }
-                ) {
-                    Text("Close")
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            shareDialogItem = null
+                            shareDialogUrl = ""
+                            shareDialogStatus = ""
+                            shareDialogExistingToken = null
+                            shareDialogExpiry = defaultShareExpiryOption()
+                        }
+                    ) {
+                        Text("Close")
+                    }
                 }
-            }
-        )
-    }
+            )
+        }
         if (imagePreviewStartIndex != null && imagePreviewItems.isNotEmpty()) {
             ImagePreviewScreen(
                 filesRepository = filesRepository,
@@ -1202,7 +1250,16 @@ fun FilesScreen(
                 }
             )
         }
-    if (textEditorPath != null && textEditorName != null) {
+        if (showSharesManager) {
+            SharesManagerScreen(
+                filesRepository = filesRepository,
+                onClose = {
+                    showSharesManager = false
+                    refreshCurrent()
+                }
+            )
+        }
+        if (textEditorPath != null && textEditorName != null) {
             TextEditorScreen(
                 filesRepository = filesRepository,
                 relPath = textEditorPath!!,
@@ -1218,7 +1275,31 @@ fun FilesScreen(
         }
     }
 }
+private data class ShareExpiryOption(
+    val label: String,
+    val expiresSec: Long?
+)
 
+private val SHARE_EXPIRY_OPTIONS = listOf(
+    ShareExpiryOption("1 hour", 3600L),
+    ShareExpiryOption("1 day", 86400L),
+    ShareExpiryOption("7 days", 7L * 86400L),
+    ShareExpiryOption("Never", null)
+)
+
+private fun defaultShareExpiryOption(): ShareExpiryOption {
+    return SHARE_EXPIRY_OPTIONS.first { it.expiresSec == 86400L }
+}
+
+private fun shareExpiryLabel(expiresSec: Long?): String {
+    return when (expiresSec) {
+        3600L -> "1 hour"
+        86400L -> "1 day"
+        7L * 86400L -> "7 days"
+        null -> "never"
+        else -> "${expiresSec}s"
+    }
+}
 @Composable
 private fun SettingsStorageSection(
     storage: MeStorageResponse?,

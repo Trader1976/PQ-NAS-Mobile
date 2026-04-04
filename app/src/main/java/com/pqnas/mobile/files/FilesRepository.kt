@@ -59,7 +59,7 @@ class FilesRepository(
             tokenStore = tokenStore
         ).listShares()
 
-    suspend fun createShare(path: String, type: String, expiresSec: Long = 86400L) =
+    suspend fun createShare(path: String, type: String, expiresSec: Long? = 86400L) =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),
             tokenStore = tokenStore
