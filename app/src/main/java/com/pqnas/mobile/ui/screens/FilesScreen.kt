@@ -80,6 +80,8 @@ import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
 import androidx.compose.material3.RadioButton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,6 +129,9 @@ fun FilesScreen(
     var uploadFileName by remember { mutableStateOf<String?>(null) }
     var uploadBytesSent by remember { mutableStateOf(0L) }
     var uploadBytesTotal by remember { mutableStateOf(0L) }
+
+    var uploadJob by remember { mutableStateOf<Job?>(null) }
+    var uploadCancelRequested by remember { mutableStateOf(false) }
 
     var newFolderDialogOpen by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
@@ -237,6 +242,15 @@ fun FilesScreen(
 
     fun refreshCurrent() {
         load(currentPath)
+    }
+
+    fun clearUploadProgressState() {
+        uploadInProgress = false
+        uploadFileName = null
+        uploadBytesSent = 0L
+        uploadBytesTotal = 0L
+        uploadCancelRequested = false
+        uploadJob = null
     }
 
     fun openShareDialog(item: FileItemDto) {
@@ -444,15 +458,10 @@ fun FilesScreen(
     fun uploadUri(uri: Uri, overwrite: Boolean) {
         var fileName: String? = null
 
-        scope.launch {
+        uploadJob = scope.launch {
             try {
                 fileName = queryDisplayName(context, uri)?.trim()
                 if (fileName.isNullOrBlank()) {
-                    uploadInProgress = false
-                    uploadFileName = null
-                    uploadBytesSent = 0L
-                    uploadBytesTotal = 0L
-
                     val msg = "Upload failed: could not determine file name."
                     status = msg
                     snackbarHostState.showSnackbar(msg)
@@ -461,11 +470,6 @@ fun FilesScreen(
 
                 val size = queryFileSize(context, uri)
                 if (size == null || size < 0L) {
-                    uploadInProgress = false
-                    uploadFileName = null
-                    uploadBytesSent = 0L
-                    uploadBytesTotal = 0L
-
                     val msg = "Upload failed: file size is unknown. Server requires Content-Length."
                     status = msg
                     snackbarHostState.showSnackbar(msg)
@@ -476,6 +480,7 @@ fun FilesScreen(
                 val targetPath = buildItemPath(currentPath, safeFileName)
 
                 uploadInProgress = true
+                uploadCancelRequested = false
                 uploadFileName = safeFileName
                 uploadBytesSent = 0L
                 uploadBytesTotal = size
@@ -492,28 +497,26 @@ fun FilesScreen(
 
                 status = "Uploading $safeFileName..."
                 filesRepository.upload(path = targetPath, body = body, overwrite = overwrite)
-                status = "OK"
-
-                uploadInProgress = false
-                uploadFileName = null
-                uploadBytesSent = 0L
-                uploadBytesTotal = 0L
 
                 overwriteUploadTargetPath = null
                 overwriteUploadUri = null
                 pendingUploadUri = null
                 pendingUploadName = null
 
+                status = "OK"
                 snackbarHostState.showSnackbar(
                     if (overwrite) "Replaced $safeFileName" else "Uploaded $safeFileName"
                 )
                 load(currentPath)
-            } catch (e: Exception) {
-                uploadInProgress = false
-                uploadFileName = null
-                uploadBytesSent = 0L
-                uploadBytesTotal = 0L
+            } catch (e: CancellationException) {
+                overwriteUploadTargetPath = null
+                overwriteUploadUri = null
+                pendingUploadUri = null
+                pendingUploadName = null
 
+                status = "Upload cancelled."
+                snackbarHostState.showSnackbar("Upload cancelled")
+            } catch (e: Exception) {
                 val http = (e as? HttpException)?.code()
                 if (!overwrite && http == 409 && !fileName.isNullOrBlank()) {
                     overwriteUploadTargetPath = buildItemPath(currentPath, fileName!!)
@@ -526,10 +529,12 @@ fun FilesScreen(
                     status = msg
                     snackbarHostState.showSnackbar(msg)
                 }
+            } finally {
+                clearUploadProgressState()
             }
         }
     }
-
+    
     val uploadDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -649,6 +654,24 @@ fun FilesScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        Spacer(Modifier.height(10.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                enabled = !uploadCancelRequested,
+                                onClick = {
+                                    uploadCancelRequested = true
+                                    status = "Cancelling upload..."
+                                    uploadJob?.cancel(CancellationException("User cancelled upload"))
+                                }
+                            ) {
+                                Text(if (uploadCancelRequested) "Cancelling..." else "Cancel upload")
+                            }
+                        }
                     }
                 }
             }
