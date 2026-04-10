@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -117,6 +119,7 @@ fun FilesScreen(
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val mainThreadHandler = remember { Handler(Looper.getMainLooper()) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     var pendingUploadUri by remember { mutableStateOf<Uri?>(null) }
@@ -457,6 +460,8 @@ fun FilesScreen(
 
     fun uploadUri(uri: Uri, overwrite: Boolean) {
         var fileName: String? = null
+        var lastProgressUiUpdateAtMs = 0L
+        var lastProgressUiBytes = -1L
 
         uploadJob = scope.launch {
             try {
@@ -490,10 +495,25 @@ fun FilesScreen(
                     uri = uri,
                     contentLength = size,
                     onProgress = { sent, total ->
-                        uploadBytesSent = sent
-                        uploadBytesTotal = total
+                        val nowMs = System.currentTimeMillis()
+                        val bytesDelta = sent - lastProgressUiBytes
+                        val shouldUpdate =
+                            sent == total ||
+                                    lastProgressUiBytes < 0L ||
+                                    bytesDelta >= 256 * 1024L ||
+                                    (nowMs - lastProgressUiUpdateAtMs) >= 100L
+
+                        if (shouldUpdate) {
+                            lastProgressUiBytes = sent
+                            lastProgressUiUpdateAtMs = nowMs
+                            mainThreadHandler.post {
+                                uploadBytesSent = sent
+                                uploadBytesTotal = total
+                            }
+                        }
                     }
                 )
+
 
                 status = "Uploading $safeFileName..."
                 filesRepository.upload(path = targetPath, body = body, overwrite = overwrite)
@@ -534,7 +554,7 @@ fun FilesScreen(
             }
         }
     }
-    
+
     val uploadDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->

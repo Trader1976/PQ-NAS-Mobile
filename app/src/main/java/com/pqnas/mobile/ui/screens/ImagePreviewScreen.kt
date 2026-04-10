@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,11 +36,16 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.pqnas.mobile.api.FileItemDto
 import com.pqnas.mobile.files.FilesRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import okhttp3.ResponseBody
+import kotlin.math.max
 
 
 @Composable
@@ -51,6 +57,7 @@ fun ImagePreviewScreen(
     onClose: () -> Unit
 ) {
     if (images.isEmpty()) return
+    val context = LocalContext.current
 
     var currentIndex by remember(images, initialIndex) {
         mutableStateOf(initialIndex.coerceIn(0, images.lastIndex))
@@ -76,19 +83,28 @@ fun ImagePreviewScreen(
     BackHandler {
         onClose()
     }
+    DisposableEffect(Unit) {
+        onDispose {
+            bitmap?.takeIf { !it.isRecycled }?.recycle()
+        }
+    }
+
 
     LaunchedEffect(relPath) {
         loading = true
+        bitmap?.takeIf { !it.isRecycled }?.recycle()
         bitmap = null
         status = "Loading..."
         resetTransform()
 
         try {
-            val body = filesRepository.download(relPath)
-            val bytes = withContext(Dispatchers.IO) { body.bytes() }
-
-            val bmp = withContext(Dispatchers.Default) {
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            val bmp = withContext(Dispatchers.IO) {
+                decodePreviewBitmapFromResponse(
+                    responseBody = filesRepository.download(relPath),
+                    cacheDir = context.cacheDir,
+                    maxDimension = 4096,
+                    maxPixels = 12_000_000
+                )
             }
 
             if (bmp == null) {
@@ -258,6 +274,56 @@ private fun buildPreviewPath(currentPath: String?, itemName: String): String {
     return listOfNotNull(currentPath, itemName)
         .filter { it.isNotBlank() }
         .joinToString("/")
+}
+private fun decodePreviewBitmapFromResponse(
+    responseBody: ResponseBody,
+    cacheDir: File,
+    maxDimension: Int,
+    maxPixels: Int
+): Bitmap? {
+    val tempFile = File.createTempFile("preview-", ".img", cacheDir)
+    return try {
+        responseBody.use { body ->
+            body.byteStream().use { input ->
+                FileOutputStream(tempFile).use { out ->
+                    input.copyTo(out)
+                }
+            }
+        }
+        decodeSampledBitmapFromFile(tempFile, maxDimension, maxPixels)
+    } finally {
+        tempFile.delete()
+    }
+}
+
+private fun decodeSampledBitmapFromFile(file: File, maxDimension: Int, maxPixels: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sampleSize = 1
+    var largest = max(bounds.outWidth, bounds.outHeight)
+    while (largest > maxDimension) {
+        sampleSize *= 2
+        largest /= 2
+    }
+
+    val totalPixels = bounds.outWidth.toLong() * bounds.outHeight.toLong()
+    while ((totalPixels / (sampleSize.toLong() * sampleSize.toLong())) > maxPixels.toLong()) {
+        sampleSize *= 2
+    }
+
+    val opts = BitmapFactory.Options().apply {
+        inSampleSize = sampleSize
+        inPreferredConfig = Bitmap.Config.RGB_565
+    }
+
+    return try {
+        BitmapFactory.decodeFile(file.absolutePath, opts)
+    } catch (_: OutOfMemoryError) {
+        null
+    }
 }
 
 private fun friendlyPreviewMessage(error: Throwable): String {
