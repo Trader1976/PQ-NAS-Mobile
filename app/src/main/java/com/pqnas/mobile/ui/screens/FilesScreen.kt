@@ -84,6 +84,11 @@ import kotlin.math.pow
 import androidx.compose.material3.RadioButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import com.pqnas.mobile.api.WorkspaceListItemDto
+import com.pqnas.mobile.files.FileScope
+import com.pqnas.mobile.files.ScopedFilesOps
+import com.pqnas.mobile.files.listWorkspaces
+import okhttp3.RequestBody.Companion.toRequestBody
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -121,6 +126,10 @@ fun FilesScreen(
     val context = LocalContext.current
     val mainThreadHandler = remember { Handler(Looper.getMainLooper()) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val scopedOps = remember(filesRepository) { ScopedFilesOps(filesRepository) }
+
+    var currentScope by remember { mutableStateOf<FileScope>(FileScope.User) }
+    var workspaces by remember { mutableStateOf<List<WorkspaceListItemDto>>(emptyList()) }
 
     var pendingUploadUri by remember { mutableStateOf<Uri?>(null) }
     var pendingUploadName by remember { mutableStateOf<String?>(null) }
@@ -181,7 +190,7 @@ fun FilesScreen(
         scope.launch {
             status = "Loading..."
             try {
-                val resp = filesRepository.list(path)
+                val resp = scopedOps.list(currentScope, path)
 
                 val favs = try {
                     filesRepository.getFavorites()
@@ -190,7 +199,7 @@ fun FilesScreen(
                 }
 
                 val shares = try {
-                    filesRepository.getShares()
+                    scopedOps.getShares(currentScope)
                 } catch (_: Exception) {
                     null
                 }
@@ -246,6 +255,40 @@ fun FilesScreen(
     fun refreshCurrent() {
         load(currentPath)
     }
+    fun switchToUserScope() {
+        currentScope = FileScope.User
+        currentPath = null
+        load(null)
+    }
+
+    fun switchToWorkspaceScope(ws: WorkspaceListItemDto) {
+        currentScope = FileScope.Workspace(
+            workspaceId = ws.workspace_id,
+            workspaceName = ws.name,
+            workspaceRole = ws.role
+        )
+        currentPath = null
+        load(null)
+    }
+    fun refreshWorkspaces() {
+        scope.launch {
+            try {
+                val resp = filesRepository.listWorkspaces()
+                workspaces = if (resp.ok) resp.workspaces else emptyList()
+
+                val activeWorkspaceId = (currentScope as? FileScope.Workspace)?.workspaceId
+                if (activeWorkspaceId != null) {
+                    val stillExists = workspaces.any { it.workspace_id == activeWorkspaceId }
+                    if (!stillExists) {
+                        currentScope = FileScope.User
+                        currentPath = null
+                    }
+                }
+            } catch (_: Exception) {
+                workspaces = emptyList()
+            }
+        }
+    }
 
     fun clearUploadProgressState() {
         uploadInProgress = false
@@ -266,7 +309,7 @@ fun FilesScreen(
         scope.launch {
             try {
                 val fullPath = itemFullPath(item)
-                val shares = filesRepository.getShares()
+                val shares = scopedOps.getShares(currentScope)
                 val existing = shares.shares.firstOrNull {
                     shareKey(it.type, it.path) == shareKey(item.type, fullPath)
                 }
@@ -286,7 +329,7 @@ fun FilesScreen(
             try {
                 val fullPath = itemFullPath(item)
                 shareDialogStatus = "Creating share..."
-                val resp = filesRepository.createShare(
+                val resp = scopedOps.createShare(currentScope,
                     path = fullPath,
                     type = item.type,
                     expiresSec = expiresSec
@@ -385,7 +428,7 @@ fun FilesScreen(
         scope.launch {
             try {
                 val path = buildItemPath(currentPath, trimmed)
-                filesRepository.mkdir(path)
+                scopedOps.mkdir(currentScope, path)
                 newFolderDialogOpen = false
                 newFolderName = ""
                 status = "OK"
@@ -416,7 +459,15 @@ fun FilesScreen(
         scope.launch {
             try {
                 val path = buildItemPath(currentPath, trimmed)
-                filesRepository.createTextFile(path = path, text = "", overwrite = false)
+                val emptyBody = ByteArray(0).toRequestBody(null)
+
+                scopedOps.upload(
+                    scope = currentScope,
+                    path = path,
+                    body = emptyBody,
+                    overwrite = false
+                )
+
                 newTextFileDialogOpen = false
                 newTextFileName = ""
                 status = "OK"
@@ -443,7 +494,7 @@ fun FilesScreen(
             try {
                 status = "Downloading ${item.name}..."
                 val fullPath = buildItemPath(currentPath, item.name)
-                val body = filesRepository.download(fullPath)
+                val body = scopedOps.download(currentScope, fullPath)
                 val bytes = withContext(Dispatchers.IO) { body.bytes() }
                 saveDownloadedFile(context, uri, bytes)
                 status = "OK"
@@ -516,7 +567,7 @@ fun FilesScreen(
 
 
                 status = "Uploading $safeFileName..."
-                filesRepository.upload(path = targetPath, body = body, overwrite = overwrite)
+                scopedOps.upload(scope = currentScope, path = targetPath, body = body, overwrite = overwrite)
 
                 overwriteUploadTargetPath = null
                 overwriteUploadUri = null
@@ -563,6 +614,7 @@ fun FilesScreen(
     }
 
     LaunchedEffect(Unit) {
+        refreshWorkspaces()
         load(null)
     }
     Box(
@@ -617,6 +669,31 @@ fun FilesScreen(
                 text = "Path: ${currentPath ?: "/"}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            FilesScopeSection(
+                currentScope = currentScope,
+                workspaces = workspaces.map { ws ->
+                    WorkspaceScopeOption(
+                        workspaceId = ws.workspace_id,
+                        label = ws.name.ifBlank { ws.workspace_id },
+                        role = ws.role
+                    )
+                },
+                onSelectUserScope = {
+                    switchToUserScope()
+                },
+                onSelectWorkspaceScope = { ws ->
+                    currentScope = FileScope.Workspace(
+                        workspaceId = ws.workspaceId,
+                        workspaceName = ws.label,
+                        workspaceRole = ws.role
+                    )
+                    currentPath = null
+                    load(null)
+                }
             )
 
             Spacer(Modifier.height(8.dp))
@@ -1060,7 +1137,7 @@ fun FilesScreen(
                             try {
                                 val fromPath = buildItemPath(currentPath, item.name)
                                 val toPath = buildItemPath(currentPath, newName)
-                                filesRepository.move(fromPath, toPath)
+                                scopedOps.move(currentScope, fromPath, toPath)
                                 renameItem = null
                                 renameText = ""
                                 status = "OK"
@@ -1103,7 +1180,7 @@ fun FilesScreen(
                         scope.launch {
                             try {
                                 val path = buildItemPath(currentPath, item.name)
-                                filesRepository.delete(path)
+                                scopedOps.delete(currentScope, path)
                                 deleteItem = null
                                 status = "OK"
                                 snackbarHostState.showSnackbar("Deleted ${item.name}")
@@ -1284,6 +1361,7 @@ fun FilesScreen(
         if (imagePreviewStartIndex != null && imagePreviewItems.isNotEmpty()) {
             ImagePreviewScreen(
                 filesRepository = filesRepository,
+                fileScope = currentScope,
                 currentPath = currentPath,
                 images = imagePreviewItems,
                 initialIndex = imagePreviewStartIndex!!,
@@ -1296,6 +1374,7 @@ fun FilesScreen(
         if (showSharesManager) {
             SharesManagerScreen(
                 filesRepository = filesRepository,
+                fileScope = currentScope,
                 onClose = {
                     showSharesManager = false
                     refreshCurrent()
@@ -1305,6 +1384,7 @@ fun FilesScreen(
         if (textEditorPath != null && textEditorName != null) {
             TextEditorScreen(
                 filesRepository = filesRepository,
+                fileScope = currentScope,
                 relPath = textEditorPath!!,
                 displayName = textEditorName!!,
                 onClose = {
@@ -1318,6 +1398,8 @@ fun FilesScreen(
         }
     }
 }
+
+
 private data class ShareExpiryOption(
     val label: String,
     val expiresSec: Long?

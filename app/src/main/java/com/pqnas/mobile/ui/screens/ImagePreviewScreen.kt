@@ -46,11 +46,13 @@ import java.io.File
 import java.io.FileOutputStream
 import okhttp3.ResponseBody
 import kotlin.math.max
-
+import com.pqnas.mobile.files.FileScope
+import com.pqnas.mobile.files.ScopedFilesOps
 
 @Composable
 fun ImagePreviewScreen(
     filesRepository: FilesRepository,
+    fileScope: FileScope,
     currentPath: String?,
     images: List<FileItemDto>,
     initialIndex: Int,
@@ -58,7 +60,7 @@ fun ImagePreviewScreen(
 ) {
     if (images.isEmpty()) return
     val context = LocalContext.current
-
+    val scopedOps = remember(filesRepository) { ScopedFilesOps(filesRepository) }
     var currentIndex by remember(images, initialIndex) {
         mutableStateOf(initialIndex.coerceIn(0, images.lastIndex))
     }
@@ -100,7 +102,7 @@ fun ImagePreviewScreen(
         try {
             val bmp = withContext(Dispatchers.IO) {
                 decodePreviewBitmapFromResponse(
-                    responseBody = filesRepository.download(relPath),
+                    responseBody = scopedOps.download(fileScope, relPath),
                     cacheDir = context.cacheDir,
                     maxDimension = 4096,
                     maxPixels = 12_000_000

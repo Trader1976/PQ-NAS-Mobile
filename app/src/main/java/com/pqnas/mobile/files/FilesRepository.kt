@@ -19,6 +19,12 @@ class FilesRepository(
 
     fun baseUrlForDisplay(): String = baseUrlProvider()
 
+    internal fun createWorkspaceFilesApiInternal() =
+        ApiFactory.createWorkspaceFilesApi(
+            baseUrl = baseUrlProvider(),
+            tokenStore = tokenStore
+        )
+
     suspend fun getMyStorage() =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),
@@ -53,11 +59,11 @@ class FilesRepository(
             )
         )
 
-    suspend fun getShares() =
+    suspend fun getShares(workspaceId: String? = null) =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),
             tokenStore = tokenStore
-        ).listShares()
+        ).listShares(workspaceId)
 
     suspend fun createShare(path: String, type: String, expiresSec: Long? = 86400L) =
         ApiFactory.createFilesApi(

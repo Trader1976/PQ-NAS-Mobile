@@ -34,6 +34,16 @@ object ApiFactory {
     }
 
     fun createFilesApi(baseUrl: String, tokenStore: TokenStore): FilesApi {
+        return createAuthedRetrofit(baseUrl, tokenStore)
+            .create(FilesApi::class.java)
+    }
+
+    fun createWorkspaceFilesApi(baseUrl: String, tokenStore: TokenStore): WorkspaceFilesApi {
+        return createAuthedRetrofit(baseUrl, tokenStore)
+            .create(WorkspaceFilesApi::class.java)
+    }
+
+    private fun createAuthedRetrofit(baseUrl: String, tokenStore: TokenStore): Retrofit {
         val authInterceptor = Interceptor { chain ->
             val state = runBlocking { tokenStore.getAuthStateOnce() }
             val token = state.accessToken
@@ -118,7 +128,6 @@ object ApiFactory {
             .client(client)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
-            .create(FilesApi::class.java)
     }
 
     private fun String.ensureTrailingSlash(): String =

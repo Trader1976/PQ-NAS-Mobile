@@ -75,7 +75,9 @@ interface FilesApi {
     ): FavoriteMutateResponse
 
     @GET("/api/v4/shares/list")
-    suspend fun listShares(): SharesListResponse
+    suspend fun listShares(
+        @Query("workspace_id") workspaceId: String? = null
+    ): SharesListResponse
 
     @Headers("Content-Type: application/json")
     @POST("/api/v4/shares/create")

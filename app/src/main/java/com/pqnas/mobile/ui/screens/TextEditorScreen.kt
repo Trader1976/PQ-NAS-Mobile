@@ -48,17 +48,25 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
+import com.pqnas.mobile.files.FileScope
+import com.pqnas.mobile.files.ScopedFilesOps
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TextEditorScreen(
     filesRepository: FilesRepository,
+    fileScope: FileScope = FileScope.User,
     relPath: String,
     displayName: String,
     onClose: () -> Unit,
     onSaved: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
+    val uiScope = rememberCoroutineScope()
+    val scopedOps = remember(filesRepository) { ScopedFilesOps(filesRepository) }
 
     var editorValue by remember(relPath) { mutableStateOf(TextFieldValue("")) }
     var originalText by remember(relPath) { mutableStateOf("") }
@@ -76,6 +84,8 @@ fun TextEditorScreen(
 
     var showDiscardDialog by remember(relPath) { mutableStateOf(false) }
     var showReloadDialog by remember(relPath) { mutableStateOf(false) }
+    var readOnly by remember(relPath) { mutableStateOf(false) }
+    var leaseHeartbeatJob by remember(relPath) { mutableStateOf<Job?>(null) }
 
     val dirty = editorValue.text != originalText
     val matches = remember(editorValue.text, findQuery, matchCase) {
@@ -92,13 +102,48 @@ fun TextEditorScreen(
             selectedStart = editorValue.selection.start
         )
     }
+    fun stopLeaseHeartbeat() {
+        leaseHeartbeatJob?.cancel()
+        leaseHeartbeatJob = null
+    }
 
+    fun leaseLockedMessage(raw: String): String {
+        val lower = raw.lowercase(Locale.getDefault())
+        return when {
+            "edit_locked" in lower ->
+                "This file is currently being edited by another session. Opened in read-only mode."
+            "edit_lock_missing" in lower ->
+                "Edit lease was lost. The file is now read-only. Reload to try again."
+            else ->
+                "This file is currently read-only."
+        }
+    }
+
+    fun startLeaseHeartbeat() {
+        stopLeaseHeartbeat()
+
+        if (fileScope !is FileScope.Workspace || !fileScope.canWrite) return
+
+        leaseHeartbeatJob = uiScope.launch {
+            while (isActive) {
+                delay(20_000L)
+                try {
+                    scopedOps.refreshEditLease(fileScope, relPath)
+                } catch (e: Exception) {
+                    stopLeaseHeartbeat()
+                    readOnly = true
+                    status = leaseLockedMessage(e.message.orEmpty())
+                }
+            }
+        }
+    }
     suspend fun loadFile() {
         loading = true
         status = "Loading..."
+        stopLeaseHeartbeat()
 
         try {
-            val resp = filesRepository.readText(relPath)
+            val resp = scopedOps.readText(fileScope, relPath)
             if (!resp.ok) {
                 throw IllegalStateException(composeApiMessage(resp.error, resp.message, "Read text failed"))
             }
@@ -109,23 +154,50 @@ fun TextEditorScreen(
             encoding = resp.encoding ?: "utf-8"
             mtimeEpoch = resp.mtime_epoch
             sha256 = resp.sha256
+
+            readOnly = false
+
+            if (fileScope is FileScope.Workspace) {
+                if (!fileScope.canWrite) {
+                    readOnly = true
+                    status = "Read-only: your workspace role does not allow editing."
+                } else {
+                    try {
+                        scopedOps.acquireEditLease(fileScope, relPath)
+                        readOnly = false
+                        startLeaseHeartbeat()
+                        status = "OK"
+                    } catch (e: Exception) {
+                        readOnly = true
+                        status = leaseLockedMessage(e.message.orEmpty())
+                    }
+                }
+            } else {
+                status = "OK"
+            }
+
             loading = false
-            status = "OK"
         } catch (e: Exception) {
             loading = false
+            readOnly = true
             status = friendlyTextEditorMessage("Read text", e)
         }
     }
 
     fun saveFile() {
-        if (loading || saving || !dirty) return
+        if (loading || saving || !dirty || readOnly) return
 
-        scope.launch {
+        uiScope.launch {
             saving = true
             status = "Saving..."
 
             try {
-                val resp = filesRepository.writeText(
+                if (fileScope is FileScope.Workspace && fileScope.canWrite) {
+                    scopedOps.refreshEditLease(fileScope, relPath)
+                }
+
+                val resp = scopedOps.writeText(
+                    scope = fileScope,
                     path = relPath,
                     text = editorValue.text,
                     expectedMtimeEpoch = mtimeEpoch,
@@ -144,7 +216,18 @@ fun TextEditorScreen(
                 onSaved()
             } catch (e: Exception) {
                 saving = false
-                status = friendlyTextEditorMessage("Write text", e)
+
+                val raw = e.message.orEmpty().lowercase(Locale.getDefault())
+                status = when {
+                    "changed_on_server" in raw ->
+                        "File changed on server. Reload and review before saving again."
+                    "edit_locked" in raw || "edit_lock_missing" in raw -> {
+                        readOnly = true
+                        leaseLockedMessage(e.message.orEmpty())
+                    }
+                    else ->
+                        friendlyTextEditorMessage("Write text", e)
+                }
             }
         }
     }
@@ -180,7 +263,11 @@ fun TextEditorScreen(
         if (dirty) {
             showDiscardDialog = true
         } else {
-            onClose()
+            uiScope.launch {
+                stopLeaseHeartbeat()
+                runCatching { scopedOps.releaseEditLease(fileScope, relPath) }
+                onClose()
+            }
         }
     }
 
@@ -189,7 +276,7 @@ fun TextEditorScreen(
         if (dirty) {
             showReloadDialog = true
         } else {
-            scope.launch { loadFile() }
+            uiScope.launch { loadFile() }
         }
     }
 
@@ -303,7 +390,15 @@ fun TextEditorScreen(
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             }
                         )
-
+                        Text(
+                            text = if (readOnly) "Mode: read-only" else "Mode: editable",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (readOnly) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
                         Text(
                             text = status,
                             style = MaterialTheme.typography.bodySmall,
@@ -394,7 +489,7 @@ fun TextEditorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    enabled = !loading && !saving,
+                    enabled = !loading && !saving && !readOnly,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         fontFamily = FontFamily.Monospace
                     ),
@@ -444,7 +539,11 @@ fun TextEditorScreen(
                 TextButton(
                     onClick = {
                         showDiscardDialog = false
-                        onClose()
+                        uiScope.launch {
+                            stopLeaseHeartbeat()
+                            runCatching { scopedOps.releaseEditLease(fileScope, relPath) }
+                            onClose()
+                        }
                     }
                 ) {
                     Text("Discard")
@@ -469,7 +568,7 @@ fun TextEditorScreen(
                 TextButton(
                     onClick = {
                         showReloadDialog = false
-                        scope.launch { loadFile() }
+                        uiScope.launch { loadFile() }
                     }
                 ) {
                     Text("Reload")
@@ -546,11 +645,17 @@ private fun friendlyTextEditorMessage(
     error: Throwable
 ): String {
     val msg = error.message?.trim().orEmpty()
+    val lower = msg.lowercase(Locale.getDefault())
 
     return when {
-        msg.contains("changed_on_server", ignoreCase = true) ||
-                msg.contains("changed on server", ignoreCase = true) ->
+        "changed_on_server" in lower || "changed on server" in lower ->
             "File changed on server. Reload and review before saving again."
+
+        "edit_locked" in lower ->
+            "This file is currently being edited by another session. Opened in read-only mode."
+
+        "edit_lock_missing" in lower ->
+            "Edit lease was lost. The file is now read-only. Reload to try again."
 
         msg.contains("HTTP 400", ignoreCase = true) ->
             "$action failed: invalid request."
@@ -565,7 +670,7 @@ private fun friendlyTextEditorMessage(
             "Item not found."
 
         msg.contains("HTTP 409", ignoreCase = true) ->
-            "File changed on server. Reload and review before saving again."
+            "$action failed: conflict."
 
         msg.contains("HTTP 413", ignoreCase = true) ->
             "$action failed: file is too large."
