@@ -24,7 +24,11 @@ class FilesRepository(
             baseUrl = baseUrlProvider(),
             tokenStore = tokenStore
         )
-
+    internal fun createFilesApiInternal() =
+        ApiFactory.createFilesApi(
+            baseUrl = baseUrlProvider(),
+            tokenStore = tokenStore
+        )
     suspend fun getMyStorage() =
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),

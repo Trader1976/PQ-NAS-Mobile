@@ -59,6 +59,7 @@ interface WorkspaceFilesApi {
         @Query("path") path: String
     ): MkdirResponse
 
+
     @PUT("/api/v4/workspaces/files/put")
     suspend fun uploadWorkspaceFile(
         @Query("workspace_id") workspaceId: String,
@@ -95,4 +96,16 @@ interface WorkspaceFilesApi {
     suspend fun releaseWorkspaceEditLease(
         @Body request: WorkspaceEditLeaseReleaseRequest
     ): WorkspaceEditLeaseReleaseResponse
+
+    @GET("/api/v4/workspaces/files/versions/list")
+    suspend fun listWorkspaceFileVersions(
+        @Query("workspace_id") workspaceId: String,
+        @Query("path") path: String
+    ): FileVersionsListResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/workspaces/files/restore_version")
+    suspend fun restoreWorkspaceFileVersion(
+        @Body request: WorkspaceRestoreVersionRequest
+    ): RestoreVersionResponse
 }

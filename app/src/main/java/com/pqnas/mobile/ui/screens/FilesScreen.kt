@@ -72,9 +72,6 @@ import com.pqnas.mobile.files.SvgIconLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody
-import okio.BufferedSink
 import retrofit2.HttpException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -89,6 +86,9 @@ import com.pqnas.mobile.files.FileScope
 import com.pqnas.mobile.files.ScopedFilesOps
 import com.pqnas.mobile.files.listWorkspaces
 import okhttp3.RequestBody.Companion.toRequestBody
+import com.pqnas.mobile.files.stageUriToTempFile
+import com.pqnas.mobile.files.tempFileRequestBody
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,8 +113,11 @@ fun FilesScreen(
     var showSharesManager by remember { mutableStateOf(false) }
 
     var infoItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var versionsItem by remember { mutableStateOf<FileItemDto?>(null) }
     var pendingDownloadItem by remember { mutableStateOf<FileItemDto?>(null) }
     var renameItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var pendingUploadUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingUploadName by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteItem by remember { mutableStateOf<FileItemDto?>(null) }
     var imagePreviewItems by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
@@ -131,8 +134,6 @@ fun FilesScreen(
     var currentScope by remember { mutableStateOf<FileScope>(FileScope.User) }
     var workspaces by remember { mutableStateOf<List<WorkspaceListItemDto>>(emptyList()) }
 
-    var pendingUploadUri by remember { mutableStateOf<Uri?>(null) }
-    var pendingUploadName by remember { mutableStateOf<String?>(null) }
     var overwriteUploadTargetPath by remember { mutableStateOf<String?>(null) }
     var overwriteUploadUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -513,6 +514,7 @@ fun FilesScreen(
         var fileName: String? = null
         var lastProgressUiUpdateAtMs = 0L
         var lastProgressUiBytes = -1L
+        var stagedFile: File? = null
 
         uploadJob = scope.launch {
             try {
@@ -524,16 +526,29 @@ fun FilesScreen(
                     return@launch
                 }
 
-                val size = queryFileSize(context, uri)
-                if (size == null || size < 0L) {
-                    val msg = "Upload failed: file size is unknown. Server requires Content-Length."
-                    status = msg
-                    snackbarHostState.showSnackbar(msg)
+                val safeFileName = fileName!!
+                val targetPath = buildItemPath(currentPath, safeFileName)
+
+                val existingItem = items.firstOrNull { it.name == safeFileName }
+                if (!overwrite && existingItem != null) {
+                    overwriteUploadTargetPath = targetPath
+                    overwriteUploadUri = uri
+                    pendingUploadUri = uri
+                    pendingUploadName = safeFileName
+                    status = "File already exists: $safeFileName"
                     return@launch
                 }
 
-                val safeFileName = fileName!!
-                val targetPath = buildItemPath(currentPath, safeFileName)
+                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                stagedFile = withContext(Dispatchers.IO) {
+                    stageUriToTempFile(
+                        context = context,
+                        uri = uri,
+                        fileNameHint = safeFileName
+                    )
+                }
+
+                val size = stagedFile!!.length()
 
                 uploadInProgress = true
                 uploadCancelRequested = false
@@ -541,10 +556,9 @@ fun FilesScreen(
                 uploadBytesSent = 0L
                 uploadBytesTotal = size
 
-                val body = uriRequestBody(
-                    context = context,
-                    uri = uri,
-                    contentLength = size,
+                val body = tempFileRequestBody(
+                    file = stagedFile!!,
+                    mimeType = mimeType,
                     onProgress = { sent, total ->
                         val nowMs = System.currentTimeMillis()
                         val bytesDelta = sent - lastProgressUiBytes
@@ -567,7 +581,13 @@ fun FilesScreen(
 
 
                 status = "Uploading $safeFileName..."
-                scopedOps.upload(scope = currentScope, path = targetPath, body = body, overwrite = overwrite)
+
+                scopedOps.upload(
+                    scope = currentScope,
+                    path = targetPath,
+                    body = body,
+                    overwrite = overwrite
+                )
 
                 overwriteUploadTargetPath = null
                 overwriteUploadUri = null
@@ -589,7 +609,23 @@ fun FilesScreen(
                 snackbarHostState.showSnackbar("Upload cancelled")
             } catch (e: Exception) {
                 val http = (e as? HttpException)?.code()
-                if (!overwrite && http == 409 && !fileName.isNullOrBlank()) {
+                val msgText = e.message.orEmpty().lowercase(Locale.getDefault())
+                val looksLikeEarlyConflictTransportError =
+                    msgText.contains("unexpected end of stream") ||
+                            msgText.contains("end of stream") ||
+                            msgText.contains("unexpected eof") ||
+                            msgText.contains("stream was reset") ||
+                            msgText.contains("socket closed")
+
+                val existingItemConflict =
+                    !overwrite &&
+                            !fileName.isNullOrBlank() &&
+                            items.any { it.name == fileName }
+
+                if (!overwrite &&
+                    !fileName.isNullOrBlank() &&
+                    (http == 409 || (looksLikeEarlyConflictTransportError && existingItemConflict))
+                ) {
                     overwriteUploadTargetPath = buildItemPath(currentPath, fileName!!)
                     overwriteUploadUri = uri
                     pendingUploadUri = uri
@@ -601,6 +637,8 @@ fun FilesScreen(
                     snackbarHostState.showSnackbar(msg)
                 }
             } finally {
+                stagedFile?.delete()
+                stagedFile = null
                 clearUploadProgressState()
             }
         }
@@ -670,7 +708,6 @@ fun FilesScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
             Spacer(Modifier.height(8.dp))
 
             FilesScopeSection(
@@ -847,6 +884,7 @@ fun FilesScreen(
                                         "ToggleFavorite" -> toggleFavorite(clickedItem)
                                         "Share" -> openShareDialog(clickedItem)
                                         "Info" -> infoItem = clickedItem
+                                        "Versions" -> versionsItem = clickedItem
                                         "Download" -> {
                                             if (clickedItem.type == "dir") {
                                                 status = "Folder download not implemented yet: ${clickedItem.name}"
@@ -1221,6 +1259,11 @@ fun FilesScreen(
                     onClick = {
                         val uri = overwriteUploadUri
                         if (uri != null) {
+                            overwriteUploadTargetPath = null
+                            overwriteUploadUri = null
+                            pendingUploadUri = null
+                            status = "Replacing ${pendingUploadName ?: "file"}..."
+                            pendingUploadName = null
                             uploadUri(uri, overwrite = true)
                         } else {
                             overwriteUploadTargetPath = null
@@ -1358,6 +1401,23 @@ fun FilesScreen(
                 }
             )
         }
+
+        versionsItem?.let { item ->
+            FileVersionsSheet(
+                filesRepository = filesRepository,
+                fileScope = currentScope,
+                relPath = buildItemPath(currentPath, item.name),
+                displayName = item.name,
+                onDismiss = {
+                    versionsItem = null
+                },
+                onRestored = { message ->
+                    status = message
+                    load(currentPath)
+                }
+            )
+        }
+
         if (imagePreviewStartIndex != null && imagePreviewItems.isNotEmpty()) {
             ImagePreviewScreen(
                 filesRepository = filesRepository,
@@ -1371,6 +1431,7 @@ fun FilesScreen(
                 }
             )
         }
+
         if (showSharesManager) {
             SharesManagerScreen(
                 filesRepository = filesRepository,
@@ -1669,7 +1730,15 @@ private fun FileRow(
                                 }
                             )
                         }
-
+                        if (!isDir) {
+                            DropdownMenuItem(
+                                text = { Text("Versions") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onMenuAction("Versions", item)
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Download") },
                             onClick = {
@@ -1834,8 +1903,9 @@ private fun friendlyHttpMessage(
         413 -> "Upload failed: file is too large."
         500 -> "$action failed: server error."
         else -> {
+            val type = error::class.java.simpleName
             val msg = error.message?.takeIf { it.isNotBlank() } ?: "unknown error"
-            "$action failed: $msg"
+            "$action failed: [$type] $msg"
         }
     }
 }
@@ -1851,54 +1921,3 @@ private fun queryDisplayName(context: Context, uri: Uri): String? {
     return null
 }
 
-private fun queryFileSize(context: Context, uri: Uri): Long? {
-    val projection = arrayOf(OpenableColumns.SIZE)
-    context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-        val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-        if (sizeIndex >= 0 && cursor.moveToFirst()) {
-            if (!cursor.isNull(sizeIndex)) {
-                return cursor.getLong(sizeIndex)
-            }
-        }
-    }
-
-    return try {
-        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
-            if (afd.length >= 0L) afd.length else null
-        }
-    } catch (_: Exception) {
-        null
-    }
-}
-
-private fun uriRequestBody(
-    context: Context,
-    uri: Uri,
-    contentLength: Long,
-    mimeType: String? = null,
-    onProgress: (sentBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
-): RequestBody {
-    return object : RequestBody() {
-        override fun contentType() = mimeType?.toMediaTypeOrNull()
-
-        override fun contentLength(): Long = contentLength
-
-        override fun writeTo(sink: BufferedSink) {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var uploaded = 0L
-
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-
-                    sink.write(buffer, 0, read)
-                    uploaded += read
-                    onProgress(uploaded, contentLength)
-                }
-
-                sink.flush()
-            } ?: throw IllegalStateException("Could not open input stream")
-        }
-    }
-}

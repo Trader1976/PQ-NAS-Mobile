@@ -52,6 +52,7 @@ interface FilesApi {
         @Query("path") path: String
     ): MkdirResponse
 
+
     @PUT("/api/v4/files/put")
     suspend fun uploadFile(
         @Query("path") path: String,
@@ -90,4 +91,15 @@ interface FilesApi {
     suspend fun revokeShare(
         @Body request: RevokeShareRequest
     ): RevokeShareResponse
+
+    @GET("/api/v4/files/versions/list")
+    suspend fun listFileVersions(
+        @Query("path") path: String
+    ): FileVersionsListResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/files/restore_version")
+    suspend fun restoreFileVersion(
+        @Body request: RestoreVersionRequest
+    ): RestoreVersionResponse
 }

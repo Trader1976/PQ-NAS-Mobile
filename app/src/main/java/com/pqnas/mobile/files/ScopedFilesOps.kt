@@ -100,6 +100,22 @@ class ScopedFilesOps(
             is FileScope.Workspace -> repo.uploadWorkspaceFile(scope.workspaceId, path, body, overwrite)
         }
 
+    suspend fun listVersions(scope: FileScope, path: String) =
+        when (scope) {
+            FileScope.User -> repo.listFileVersions(path)
+            is FileScope.Workspace -> repo.listWorkspaceFileVersions(scope.workspaceId, path)
+        }
+
+    suspend fun restoreVersion(
+        scope: FileScope,
+        path: String,
+        versionId: String
+    ) =
+        when (scope) {
+            FileScope.User -> repo.restoreFileVersion(path, versionId)
+            is FileScope.Workspace -> repo.restoreWorkspaceFileVersion(scope.workspaceId, path, versionId)
+        }
+
     suspend fun acquireEditLease(scope: FileScope, path: String) {
         if (scope is FileScope.Workspace && scope.canWrite) {
             repo.acquireWorkspaceEditLease(
