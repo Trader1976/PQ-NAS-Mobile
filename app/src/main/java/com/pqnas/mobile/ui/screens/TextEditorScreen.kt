@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -53,6 +52,29 @@ import com.pqnas.mobile.files.ScopedFilesOps
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import android.graphics.Typeface
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
+import android.text.method.KeyListener
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.widget.EditText
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.viewinterop.AndroidView
+import android.text.method.ScrollingMovementMethod
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.height
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +108,15 @@ fun TextEditorScreen(
     var showReloadDialog by remember(relPath) { mutableStateOf(false) }
     var readOnly by remember(relPath) { mutableStateOf(false) }
     var leaseHeartbeatJob by remember(relPath) { mutableStateOf<Job?>(null) }
+
+    val editorBridge = remember(relPath) { object { var suppressCallbacks = false } }
+    val editorPaddingPx = with(LocalDensity.current) { 12.dp.roundToPx() }
+    val surfaceColor = MaterialTheme.colorScheme.surface.toArgb()
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface.toArgb()
+    val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    var editorScrollY by remember(relPath) { mutableIntStateOf(0) }
+    var editorScrollRange by remember(relPath) { mutableIntStateOf(0) }
+    var editorViewportHeightPx by remember(relPath) { mutableIntStateOf(0) }
 
     val dirty = editorValue.text != originalText
     val matches = remember(editorValue.text, findQuery, matchCase) {
@@ -482,20 +513,158 @@ fun TextEditorScreen(
                         }
                     }
                 }
-
-                OutlinedTextField(
-                    value = editorValue,
-                    onValueChange = { editorValue = it },
+                val surfaceColor = MaterialTheme.colorScheme.surface.toArgb()
+                val onSurfaceColor = MaterialTheme.colorScheme.onSurface.toArgb()
+                val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                    enabled = !loading && !saving && !readOnly,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = FontFamily.Monospace
-                    ),
-                    singleLine = false
-                )
+                        .weight(1f)
+                        .onSizeChanged { editorViewportHeightPx = it.height }
+                ) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { context ->
+                            ScrollAwareEditText(context).apply {
+                                onSelectionChangedCallback = { selStart, selEnd ->
+                                    if (!editorBridge.suppressCallbacks) {
+                                        val textLen = text?.length ?: 0
+                                        val safeStart = selStart.coerceIn(0, textLen)
+                                        val safeEnd = selEnd.coerceIn(0, textLen)
 
+                                        if (
+                                            editorValue.selection.start != safeStart ||
+                                            editorValue.selection.end != safeEnd
+                                        ) {
+                                            editorValue = editorValue.copy(
+                                                selection = TextRange(safeStart, safeEnd)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                onScrollMetricsChanged = { newScrollY, newScrollRange ->
+                                    editorScrollY = newScrollY
+                                    editorScrollRange = newScrollRange
+                                }
+
+                                typeface = Typeface.MONOSPACE
+                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+
+                                gravity = Gravity.TOP or Gravity.START
+                                inputType = InputType.TYPE_CLASS_TEXT or
+                                        InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                                        InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+
+                                isSingleLine = false
+                                maxLines = Int.MAX_VALUE
+                                setHorizontallyScrolling(false)
+                                movementMethod = ScrollingMovementMethod.getInstance()
+
+                                isVerticalScrollBarEnabled = false
+                                isHorizontalScrollBarEnabled = false
+                                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+
+                                setPadding(
+                                    editorPaddingPx,
+                                    editorPaddingPx,
+                                    editorPaddingPx,
+                                    editorPaddingPx
+                                )
+
+                                setBackgroundColor(surfaceColor)
+                                setTextColor(onSurfaceColor)
+                                setHintTextColor(onSurfaceVariantColor)
+
+                                val editableKeyListener = keyListener
+                                setTag(editableKeyListener)
+
+                                setText(editorValue.text)
+                                val start = editorValue.selection.start.coerceIn(0, editorValue.text.length)
+                                val end = editorValue.selection.end.coerceIn(0, editorValue.text.length)
+                                setSelection(start, end)
+
+                                post { publishScrollMetrics() }
+
+                                addTextChangedListener(object : TextWatcher {
+                                    override fun beforeTextChanged(
+                                        s: CharSequence?,
+                                        start: Int,
+                                        count: Int,
+                                        after: Int
+                                    ) = Unit
+
+                                    override fun onTextChanged(
+                                        s: CharSequence?,
+                                        start: Int,
+                                        before: Int,
+                                        count: Int
+                                    ) = Unit
+
+                                    override fun afterTextChanged(s: Editable?) {
+                                        if (editorBridge.suppressCallbacks) return
+
+                                        val newText = s?.toString().orEmpty()
+                                        val selStart = selectionStart.coerceIn(0, newText.length)
+                                        val selEnd = selectionEnd.coerceIn(0, newText.length)
+
+                                        val newValue = editorValue.copy(
+                                            text = newText,
+                                            selection = TextRange(selStart, selEnd)
+                                        )
+
+                                        if (newValue != editorValue) {
+                                            editorValue = newValue
+                                        }
+
+                                        post { publishScrollMetrics() }
+                                    }
+                                })
+                            }
+                        },
+                        update = { view ->
+                            val targetText = editorValue.text
+                            val start = editorValue.selection.start.coerceIn(0, targetText.length)
+                            val end = editorValue.selection.end.coerceIn(0, targetText.length)
+
+                            view.setBackgroundColor(surfaceColor)
+                            view.setTextColor(onSurfaceColor)
+                            view.setHintTextColor(onSurfaceVariantColor)
+
+                            val editableKeyListener = view.getTag() as? KeyListener
+                            val editableNow = !loading && !saving && !readOnly
+
+                            view.keyListener = if (editableNow) editableKeyListener else null
+                            view.isFocusable = true
+                            view.isFocusableInTouchMode = true
+                            view.isCursorVisible = editableNow
+
+                            if (view.text?.toString() != targetText) {
+                                editorBridge.suppressCallbacks = true
+                                view.setText(targetText)
+                                view.setSelection(start, end)
+                                editorBridge.suppressCallbacks = false
+                            } else if (view.selectionStart != start || view.selectionEnd != end) {
+                                editorBridge.suppressCallbacks = true
+                                view.setSelection(start, end)
+                                editorBridge.suppressCallbacks = false
+                            }
+
+                            (view as? ScrollAwareEditText)?.post {
+                                view.publishScrollMetrics()
+                            }
+                        }
+                    )
+
+                    EditorPositionThumb(
+                        scrollY = editorScrollY,
+                        scrollRange = editorScrollRange,
+                        viewportHeightPx = editorViewportHeightPx,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(vertical = 8.dp, horizontal = 4.dp)
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -584,7 +753,39 @@ fun TextEditorScreen(
         )
     }
 }
+private class ScrollAwareEditText(
+    context: android.content.Context
+) : android.widget.EditText(context) {
 
+    var onSelectionChangedCallback: ((Int, Int) -> Unit)? = null
+    var onScrollMetricsChanged: ((scrollY: Int, scrollRange: Int) -> Unit)? = null
+
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        super.onSelectionChanged(selStart, selEnd)
+        onSelectionChangedCallback?.invoke(selStart, selEnd)
+    }
+
+    override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
+        super.onScrollChanged(l, t, oldl, oldt)
+        publishScrollMetrics()
+    }
+
+    override fun onLayout(
+        changed: Boolean,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int
+    ) {
+        super.onLayout(changed, left, top, right, bottom)
+        publishScrollMetrics()
+    }
+
+    fun publishScrollMetrics() {
+        val range = (computeVerticalScrollRange() - height).coerceAtLeast(0)
+        onScrollMetricsChanged?.invoke(scrollY, range)
+    }
+}
 private fun findMatches(
     fullText: String,
     query: String,
@@ -685,7 +886,58 @@ private fun friendlyTextEditorMessage(
             "$action failed: unknown error"
     }
 }
+@Composable
+private fun EditorPositionThumb(
+    scrollY: Int,
+    scrollRange: Int,
+    viewportHeightPx: Int,
+    modifier: Modifier = Modifier
+) {
+    if (viewportHeightPx <= 0 || scrollRange <= 0) return
 
+    val density = LocalDensity.current
+    val viewport = viewportHeightPx.toFloat()
+    val contentHeight = viewport + scrollRange.toFloat()
+
+    val minThumbHeightPx = with(density) { 36.dp.toPx() }
+    val thumbHeightPx = ((viewport * viewport) / contentHeight)
+        .coerceAtLeast(minThumbHeightPx)
+        .coerceAtMost(viewport)
+
+    val travelPx = (viewport - thumbHeightPx).coerceAtLeast(0f)
+    val thumbOffsetPx =
+        if (scrollRange <= 0) 0f
+        else (scrollY.toFloat() / scrollRange.toFloat()) * travelPx
+
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxHeight()
+                .width(3.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = with(density) { thumbOffsetPx.toDp() })
+                .width(6.dp)
+                .height(with(density) { thumbHeightPx.toDp() })
+                .clip(RoundedCornerShape(999.dp))
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                )
+        )
+    }
+}
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val units = arrayOf("KB", "MB", "GB", "TB", "PB")
