@@ -1208,9 +1208,9 @@ fun FilesScreen(
     deleteItem?.let { item ->
         AlertDialog(
             onDismissRequest = { deleteItem = null },
-            title = { Text("Delete") },
+            title = { Text("Move to trash") },
             text = {
-                Text("Delete ${if (item.type == "dir") "folder" else "file"} \"${item.name}\"?")
+                Text("Move ${if (item.type == "dir") "folder" else "file"} \"${item.name}\" to trash?")
             },
             confirmButton = {
                 TextButton(
@@ -1221,7 +1221,7 @@ fun FilesScreen(
                                 scopedOps.delete(currentScope, path)
                                 deleteItem = null
                                 status = "OK"
-                                snackbarHostState.showSnackbar("Deleted ${item.name}")
+                                snackbarHostState.showSnackbar("Moved ${item.name} to trash")
                                 load(currentPath)
                             } catch (e: Exception) {
                                 val msg = friendlyHttpMessage("Delete", e)
@@ -1231,7 +1231,7 @@ fun FilesScreen(
                         }
                     }
                 ) {
-                    Text("Delete")
+                    Text("Move to trash")
                 }
             },
             dismissButton = {
@@ -1756,7 +1756,7 @@ private fun FileRow(
                         )
 
                         DropdownMenuItem(
-                            text = { Text("Delete") },
+                            text = { Text("Move to trash") },
                             onClick = {
                                 menuExpanded = false
                                 onMenuAction("Delete", item)
@@ -1892,7 +1892,7 @@ private fun friendlyHttpMessage(
         409 -> when (action) {
             "Rename" -> "Cannot rename: a file or folder with that name already exists."
             "Move" -> "Cannot move: destination already exists."
-            "Delete" -> "Cannot delete: item is in a conflicting state."
+            "Delete" -> "Cannot move to trash: item is in a conflicting state."
             "Upload" -> "Upload failed: a file or folder with that name already exists."
             "Create text file" -> "Cannot create file: a file or folder with that name already exists."
             "Create folder" -> "Cannot create folder: path conflicts with an existing item."
