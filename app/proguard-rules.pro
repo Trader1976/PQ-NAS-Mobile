@@ -19,3 +19,24 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# DNA-Nexus API DTOs are serialized/deserialized by Retrofit/Moshi.
+# Keep fields and constructors stable for JSON mapping.
+-keep class com.pqnas.mobile.api.** { *; }
+
+# AuthState is persisted/used across auth flow; keep it stable.
+-keep class com.pqnas.mobile.auth.AuthState { *; }
+
+# Keep useful Kotlin/annotation metadata for reflection-based JSON handling.
+-keepattributes Signature
+-keepattributes RuntimeVisibleAnnotations
+-keepattributes RuntimeVisibleParameterAnnotations
+-keepattributes AnnotationDefault
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
+
+# Strip debug/verbose logs from release even if one slips through later.
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+}
