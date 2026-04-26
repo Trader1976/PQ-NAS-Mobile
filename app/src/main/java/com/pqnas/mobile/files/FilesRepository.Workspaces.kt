@@ -6,34 +6,10 @@ import com.pqnas.mobile.api.WorkspaceEditLeaseRequest
 import com.pqnas.mobile.api.WorkspaceWriteTextRequest
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
-import org.json.JSONObject
 import retrofit2.HttpException
 
 private fun throwApiBodyAwareError(e: HttpException, fallback: String): Nothing {
-    val raw = try {
-        e.response()?.errorBody()?.string().orEmpty()
-    } catch (_: Exception) {
-        ""
-    }
-
-    val j = try {
-        if (raw.isBlank()) null else JSONObject(raw)
-    } catch (_: Exception) {
-        null
-    }
-
-    val error = j?.optString("error").orEmpty()
-    val message = j?.optString("message").orEmpty()
-    val detail = j?.optString("detail").orEmpty()
-
-    val parts = listOf(
-        error.takeIf { it.isNotBlank() },
-        message.takeIf { it.isNotBlank() },
-        detail.takeIf { it.isNotBlank() },
-        "HTTP ${e.code()}"
-    )
-
-    throw IllegalStateException(parts.joinToString(": ").ifBlank { fallback })
+    throwSafeApiError(e, fallback)
 }
 
 suspend fun FilesRepository.listWorkspaces() =
