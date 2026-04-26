@@ -68,6 +68,8 @@ dependencies {
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.caverock:androidsvg-aar:1.4")
+    implementation("androidx.media3:media3-exoplayer:1.10.0")
+    implementation("androidx.media3:media3-datasource-okhttp:1.10.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

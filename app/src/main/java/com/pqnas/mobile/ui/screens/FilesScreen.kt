@@ -122,6 +122,8 @@ fun FilesScreen(
     var deleteItem by remember { mutableStateOf<FileItemDto?>(null) }
     var imagePreviewItems by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
     var imagePreviewStartIndex by remember { mutableStateOf<Int?>(null) }
+    var audioPlayerItems by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
+    var audioPlayerStartIndex by remember { mutableStateOf<Int?>(null) }
     var textEditorPath by remember { mutableStateOf<String?>(null) }
     var textEditorName by remember { mutableStateOf<String?>(null) }
 
@@ -401,7 +403,17 @@ fun FilesScreen(
         imagePreviewItems = visibleImages
         imagePreviewStartIndex = idx
     }
+    fun openAudioPlayer(item: FileItemDto) {
+        if (item.type != "file") return
+        if (!isProbablyAudioFile(item.name)) return
 
+        val visibleAudioFiles = items.filter { it.type == "file" && isProbablyAudioFile(it.name) }
+        val idx = visibleAudioFiles.indexOfFirst { it.name == item.name }
+        if (idx < 0) return
+
+        audioPlayerItems = visibleAudioFiles
+        audioPlayerStartIndex = idx
+    }
     fun openTextEditor(item: FileItemDto) {
         if (item.type != "file") return
         if (!isProbablyTextFile(item.name)) return
@@ -896,6 +908,8 @@ fun FilesScreen(
                                         load(next)
                                     } else if (isProbablyImageFile(item.name)) {
                                         openImagePreview(item)
+                                    } else if (isProbablyAudioFile(item.name)) {
+                                        openAudioPlayer(item)
                                     } else if (isProbablyTextFile(item.name)) {
                                         openTextEditor(item)
                                     }
@@ -906,6 +920,7 @@ fun FilesScreen(
                                 onMenuAction = { action, clickedItem ->
                                     when (action) {
                                         "Preview" -> openImagePreview(clickedItem)
+                                        "PlayAudio" -> openAudioPlayer(clickedItem)
                                         "EditText" -> openTextEditor(clickedItem)
                                         "ToggleFavorite" -> toggleFavorite(clickedItem)
                                         "Share" -> openShareDialog(clickedItem)
@@ -1457,7 +1472,19 @@ fun FilesScreen(
                 }
             )
         }
-
+        audioPlayerStartIndex?.let { startIndex ->
+            AudioPlayerScreen(
+                filesRepository = filesRepository,
+                fileScope = currentScope,
+                currentPath = currentPath,
+                audioFiles = audioPlayerItems,
+                initialIndex = startIndex,
+                onClose = {
+                    audioPlayerStartIndex = null
+                    audioPlayerItems = emptyList()
+                }
+            )
+        }
         if (showSharesManager) {
             SharesManagerScreen(
                 filesRepository = filesRepository,
@@ -1745,6 +1772,16 @@ private fun FileRow(
                             )
                         }
 
+                        if (!isDir && isProbablyAudioFile(item.name)) {
+                            DropdownMenuItem(
+                                text = { Text("Play audio") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onMenuAction("PlayAudio", item)
+                                }
+                            )
+                        }
+
                         if (!isDir && isProbablyTextFile(item.name)) {
                             DropdownMenuItem(
                                 text = { Text("Edit text") },
@@ -1849,6 +1886,21 @@ private fun isProbablyTextFile(name: String): Boolean {
 private fun isProbablyImageFile(name: String): Boolean {
     val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
     return ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico")
+}
+
+private fun isProbablyAudioFile(name: String): Boolean {
+    val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
+    return ext in setOf(
+        "mp3",
+        "m4a",
+        "aac",
+        "wav",
+        "ogg",
+        "oga",
+        "opus",
+        "flac",
+        "webm"
+    )
 }
 
 private fun formatBytes(bytes: Long): String {
