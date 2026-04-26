@@ -19,6 +19,12 @@ class FilesRepository(
 
     fun baseUrlForDisplay(): String = baseUrlProvider()
 
+    fun createAuthedOkHttpClient() =
+        ApiFactory.createAuthedOkHttpClient(
+            baseUrl = baseUrlProvider(),
+            tokenStore = tokenStore
+        )
+
     internal fun createWorkspaceFilesApiInternal() =
         ApiFactory.createWorkspaceFilesApi(
             baseUrl = baseUrlProvider(),

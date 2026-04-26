@@ -132,6 +132,7 @@ fun FilesScreen(
     val scopedOps = remember(filesRepository, context) {
         ScopedFilesOps(filesRepository, context.applicationContext)
     }
+    val thumbnailImageLoader = rememberFileThumbnailImageLoader(filesRepository)
 
     var currentScope by remember { mutableStateOf<FileScope>(FileScope.User) }
     var workspaces by remember { mutableStateOf<List<WorkspaceListItemDto>>(emptyList()) }
@@ -878,6 +879,16 @@ fun FilesScreen(
                         items(items) { item ->
                             FileRow(
                                 item = item,
+                                leadingVisual = {
+                                    FileLeadingVisual(
+                                        filesRepository = filesRepository,
+                                        imageLoader = thumbnailImageLoader,
+                                        fileScope = currentScope,
+                                        currentPath = currentPath,
+                                        item = item,
+                                        modifier = Modifier.size(42.dp)
+                                    )
+                                },
                                 onOpen = {
                                     if (item.type == "dir") {
                                         val next = listOfNotNull(currentPath, item.name)
@@ -1598,6 +1609,7 @@ private fun SettingsStorageSection(
 @Composable
 private fun FileRow(
     item: FileItemDto,
+    leadingVisual: @Composable () -> Unit,
     onOpen: () -> Unit,
     onToggleFavorite: () -> Unit,
     onMenuAction: (String, FileItemDto) -> Unit
@@ -1663,10 +1675,7 @@ private fun FileRow(
                     }
                 }
 
-                FileIcon(
-                    item = item,
-                    modifier = Modifier.size(26.dp)
-                )
+                leadingVisual()
 
                 Column(
                     modifier = Modifier.weight(1f),

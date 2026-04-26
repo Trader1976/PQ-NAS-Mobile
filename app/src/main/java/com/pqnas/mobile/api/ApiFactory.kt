@@ -56,7 +56,7 @@ object ApiFactory {
             .create(WorkspaceFilesApi::class.java)
     }
 
-    private fun createAuthedRetrofit(baseUrl: String, tokenStore: TokenStore): Retrofit {
+    fun createAuthedOkHttpClient(baseUrl: String, tokenStore: TokenStore): OkHttpClient {
         val initialState = runBlocking { tokenStore.getAuthStateOnce() }
 
         if (initialState.tlsPinSha256.isBlank()) {
@@ -153,7 +153,11 @@ object ApiFactory {
             })
         }
 
-        val client = clientBuilder.build()
+        return clientBuilder.build()
+    }
+
+    private fun createAuthedRetrofit(baseUrl: String, tokenStore: TokenStore): Retrofit {
+        val client = createAuthedOkHttpClient(baseUrl, tokenStore)
 
         return Retrofit.Builder()
             .baseUrl(baseUrl.ensureTrailingSlash())
