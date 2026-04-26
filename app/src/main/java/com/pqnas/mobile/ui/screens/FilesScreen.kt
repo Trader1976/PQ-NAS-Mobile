@@ -496,8 +496,21 @@ fun FilesScreen(
                 status = "Downloading ${item.name}..."
                 val fullPath = buildItemPath(currentPath, item.name)
                 val body = scopedOps.download(currentScope, fullPath)
-                val bytes = withContext(Dispatchers.IO) { body.bytes() }
-                saveDownloadedFile(context, uri, bytes)
+
+                withContext(Dispatchers.IO) {
+                    body.use { responseBody ->
+                        val output = context.contentResolver.openOutputStream(uri)
+                            ?: throw IllegalStateException("Could not open destination file.")
+
+                        output.use { out ->
+                            responseBody.byteStream().use { input ->
+                                input.copyTo(out)
+                            }
+                            out.flush()
+                        }
+                    }
+                }
+
                 status = "OK"
                 snackbarHostState.showSnackbar("Saved to Download/${item.name}")
             } catch (e: Exception) {
