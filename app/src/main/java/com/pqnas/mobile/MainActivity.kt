@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
                         } else {
                             PairConfirmScreen(
                                 payload = payload,
+                                configuredBaseUrl = baseUrl,
                                 authRepository = authRepository,
                                 onPaired = {
                                     runBlocking {

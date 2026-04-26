@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun PairConfirmScreen(
     payload: PairQrPayload,
+    configuredBaseUrl: String,
     authRepository: AuthRepository,
     onPaired: () -> Unit,
     onBack: () -> Unit
@@ -34,7 +35,13 @@ fun PairConfirmScreen(
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    fun normalizeOriginForCompare(value: String): String {
+        return value.trim().trimEnd('/').lowercase()
+    }
 
+    val configuredOrigin = normalizeOriginForCompare(configuredBaseUrl)
+    val qrOrigin = normalizeOriginForCompare(payload.origin)
+    val originMismatch = configuredOrigin.isBlank() || configuredOrigin != qrOrigin
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -65,7 +72,13 @@ fun PairConfirmScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-
+                if (originMismatch) {
+                    Text(
+                        text = "Configured server: $configuredBaseUrl\nThis QR code points to a different server. Pairing is blocked.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 Text(
                     text = "App: ${payload.appName}",
                     style = MaterialTheme.typography.bodyMedium,
@@ -101,6 +114,11 @@ fun PairConfirmScreen(
                 Button(
                     onClick = {
                         scope.launch {
+                            if (originMismatch) {
+                                status = "Error: QR server does not match configured server."
+                                return@launch
+                            }
+
                             busy = true
                             status = "Pairing..."
                             try {
@@ -129,7 +147,7 @@ fun PairConfirmScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !busy
+                    enabled = !busy && !originMismatch
                 ) {
                     Text("Pair this device")
                 }
