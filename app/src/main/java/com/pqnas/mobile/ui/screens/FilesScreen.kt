@@ -129,7 +129,9 @@ fun FilesScreen(
     val context = LocalContext.current
     val mainThreadHandler = remember { Handler(Looper.getMainLooper()) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val scopedOps = remember(filesRepository) { ScopedFilesOps(filesRepository) }
+    val scopedOps = remember(filesRepository, context) {
+        ScopedFilesOps(filesRepository, context.applicationContext)
+    }
 
     var currentScope by remember { mutableStateOf<FileScope>(FileScope.User) }
     var workspaces by remember { mutableStateOf<List<WorkspaceListItemDto>>(emptyList()) }

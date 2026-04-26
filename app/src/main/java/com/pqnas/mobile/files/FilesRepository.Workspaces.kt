@@ -8,6 +8,8 @@ import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.HttpException
 
+
+
 private fun throwApiBodyAwareError(e: HttpException, fallback: String): Nothing {
     throwSafeApiError(e, fallback)
 }
@@ -42,7 +44,7 @@ suspend fun FilesRepository.downloadWorkspaceFile(
 suspend fun FilesRepository.readWorkspaceText(
     workspaceId: String,
     path: String,
-    sessionId: String = WorkspaceEditorSession.id()
+    sessionId: String
 ) =
     try {
         createWorkspaceFilesApiInternal().readWorkspaceTextFile(workspaceId, path, sessionId)
@@ -54,7 +56,7 @@ suspend fun FilesRepository.writeWorkspaceText(
     workspaceId: String,
     path: String,
     text: String,
-    sessionId: String = WorkspaceEditorSession.id(),
+    sessionId: String,
     expectedMtimeEpoch: Long? = null,
     expectedSha256: String? = null
 ) =
@@ -152,7 +154,7 @@ suspend fun FilesRepository.createWorkspaceShare(
 suspend fun FilesRepository.acquireWorkspaceEditLease(
     workspaceId: String,
     path: String,
-    sessionId: String = WorkspaceEditorSession.id(),
+    sessionId: String,
     leaseSeconds: Long = 60L
 ) =
     try {
@@ -171,7 +173,7 @@ suspend fun FilesRepository.acquireWorkspaceEditLease(
 suspend fun FilesRepository.refreshWorkspaceEditLease(
     workspaceId: String,
     path: String,
-    sessionId: String = WorkspaceEditorSession.id(),
+    sessionId: String,
     leaseSeconds: Long = 60L
 ) =
     try {
@@ -190,7 +192,7 @@ suspend fun FilesRepository.refreshWorkspaceEditLease(
 suspend fun FilesRepository.releaseWorkspaceEditLease(
     workspaceId: String,
     path: String,
-    sessionId: String = WorkspaceEditorSession.id()
+    sessionId: String
 ) =
     try {
         createWorkspaceFilesApiInternal().releaseWorkspaceEditLease(

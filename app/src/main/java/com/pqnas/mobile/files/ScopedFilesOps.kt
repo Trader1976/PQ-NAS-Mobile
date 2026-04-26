@@ -1,11 +1,16 @@
 package com.pqnas.mobile.files
 
+import android.content.Context
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
 
 class ScopedFilesOps(
-    private val repo: FilesRepository
+    private val repo: FilesRepository,
+    private val context: Context
 ) {
+    private fun workspaceSessionId(): String =
+        WorkspaceEditorSession.id(context)
+
     fun canWrite(scope: FileScope): Boolean {
         return when (scope) {
             FileScope.User -> true
@@ -49,7 +54,11 @@ class ScopedFilesOps(
     suspend fun readText(scope: FileScope, path: String) =
         when (scope) {
             FileScope.User -> repo.readText(path)
-            is FileScope.Workspace -> repo.readWorkspaceText(scope.workspaceId, path, WorkspaceEditorSession.id())
+            is FileScope.Workspace -> repo.readWorkspaceText(
+                workspaceId = scope.workspaceId,
+                path = path,
+                sessionId = workspaceSessionId()
+            )
         }
 
     suspend fun writeText(
@@ -65,7 +74,7 @@ class ScopedFilesOps(
                 workspaceId = scope.workspaceId,
                 path = path,
                 text = text,
-                sessionId = WorkspaceEditorSession.id(),
+                sessionId = workspaceSessionId(),
                 expectedMtimeEpoch = expectedMtimeEpoch,
                 expectedSha256 = expectedSha256
             )
@@ -121,7 +130,7 @@ class ScopedFilesOps(
             repo.acquireWorkspaceEditLease(
                 workspaceId = scope.workspaceId,
                 path = path,
-                sessionId = WorkspaceEditorSession.id(),
+                sessionId = workspaceSessionId(),
                 leaseSeconds = 60L
             )
         }
@@ -132,7 +141,7 @@ class ScopedFilesOps(
             repo.refreshWorkspaceEditLease(
                 workspaceId = scope.workspaceId,
                 path = path,
-                sessionId = WorkspaceEditorSession.id(),
+                sessionId = workspaceSessionId(),
                 leaseSeconds = 60L
             )
         }
@@ -143,7 +152,7 @@ class ScopedFilesOps(
             repo.releaseWorkspaceEditLease(
                 workspaceId = scope.workspaceId,
                 path = path,
-                sessionId = WorkspaceEditorSession.id()
+                sessionId = workspaceSessionId()
             )
         }
     }

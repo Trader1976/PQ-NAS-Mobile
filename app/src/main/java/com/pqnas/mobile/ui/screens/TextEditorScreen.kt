@@ -63,6 +63,7 @@ import android.view.View
 import android.widget.EditText
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import android.text.method.ScrollingMovementMethod
 import androidx.compose.foundation.layout.Box
@@ -88,7 +89,10 @@ fun TextEditorScreen(
     onSaved: () -> Unit
 ) {
     val uiScope = rememberCoroutineScope()
-    val scopedOps = remember(filesRepository) { ScopedFilesOps(filesRepository) }
+    val context = LocalContext.current
+    val scopedOps = remember(filesRepository, context) {
+        ScopedFilesOps(filesRepository, context.applicationContext)
+    }
 
     var editorValue by remember(relPath) { mutableStateOf(TextFieldValue("")) }
     var originalText by remember(relPath) { mutableStateOf("") }

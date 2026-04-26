@@ -60,7 +60,9 @@ fun ImagePreviewScreen(
 ) {
     if (images.isEmpty()) return
     val context = LocalContext.current
-    val scopedOps = remember(filesRepository) { ScopedFilesOps(filesRepository) }
+    val scopedOps = remember(filesRepository, context) {
+        ScopedFilesOps(filesRepository, context.applicationContext)
+    }
     var currentIndex by remember(images, initialIndex) {
         mutableStateOf(initialIndex.coerceIn(0, images.lastIndex))
     }

@@ -60,7 +60,9 @@ fun FileVersionsSheet(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val scopedOps = remember(filesRepository) { ScopedFilesOps(filesRepository) }
+    val scopedOps = remember(filesRepository, context) {
+        ScopedFilesOps(filesRepository, context.applicationContext)
+    }
 
     var versions by remember(relPath, fileScope) { mutableStateOf<List<FileVersionItemDto>>(emptyList()) }
     var status by remember(relPath, fileScope) { mutableStateOf("Loading versions...") }
