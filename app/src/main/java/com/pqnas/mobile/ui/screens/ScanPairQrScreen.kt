@@ -38,7 +38,7 @@ fun ScanPairQrScreen(
 
         val parsed = PairQrParser.parse(contents)
         if (parsed == null) {
-            status = "Invalid DNA-Nexus pairing QR"
+            status = "Invalid DNA-Nexus pairing QR or missing TLS trust pin"
             return@rememberLauncherForActivityResult
         }
 

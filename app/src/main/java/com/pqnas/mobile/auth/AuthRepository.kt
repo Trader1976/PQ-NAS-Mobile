@@ -15,9 +15,13 @@ class AuthRepository(
     suspend fun consumePair(
         baseUrl: String,
         pairToken: String,
+        tlsPinSha256: String,
         deviceName: String = "DNA-Nexus Android"
     ): Boolean {
-        val api = ApiFactory.createAuthApi(baseUrl)
+        val api = ApiFactory.createAuthApi(
+            baseUrl = baseUrl,
+            tlsPinSha256 = tlsPinSha256
+        )
 
         val manufacturer = Build.MANUFACTURER ?: ""
         val model = Build.MODEL ?: ""
@@ -42,14 +46,24 @@ class AuthRepository(
             )
         )
 
+        if (!resp.ok ||
+            resp.access_token.isBlank() ||
+            resp.refresh_token.isBlank() ||
+            resp.device_id.isBlank()
+        ) {
+            return false
+        }
+
         tokenStore.saveTokens(
             accessToken = resp.access_token,
             refreshToken = resp.refresh_token,
             deviceId = resp.device_id,
             fingerprintHex = resp.fingerprint_hex,
-            role = resp.role
+            role = resp.role,
+            baseUrl = baseUrl,
+            tlsPinSha256 = tlsPinSha256
         )
 
-        return resp.ok
+        return true
     }
 }

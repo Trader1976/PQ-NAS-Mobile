@@ -16,6 +16,7 @@ private val Context.dataStore by preferencesDataStore(name = "pqnas_auth")
 
 data class AuthState(
     val baseUrl: String = "",
+    val tlsPinSha256: String = "",
     val accessToken: String = "",
     val refreshToken: String = "",
     val deviceId: String = "",
@@ -24,6 +25,7 @@ data class AuthState(
 ) {
     val isLoggedIn: Boolean
         get() = baseUrl.isNotBlank() &&
+                tlsPinSha256.isNotBlank() &&
                 accessToken.isNotBlank() &&
                 refreshToken.isNotBlank() &&
                 deviceId.isNotBlank()
@@ -32,6 +34,7 @@ data class AuthState(
 class TokenStore(private val context: Context) {
     private object Keys {
         val BASE_URL = stringPreferencesKey("base_url")
+        val TLS_PIN_SHA256 = stringPreferencesKey("tls_pin_sha256")
         val ACCESS_TOKEN = stringPreferencesKey("access_token")
         val REFRESH_TOKEN = stringPreferencesKey("refresh_token")
         val DEVICE_ID = stringPreferencesKey("device_id")
@@ -40,6 +43,7 @@ class TokenStore(private val context: Context) {
 
         val all: List<Preferences.Key<String>> = listOf(
             BASE_URL,
+            TLS_PIN_SHA256,
             ACCESS_TOKEN,
             REFRESH_TOKEN,
             DEVICE_ID,
@@ -55,6 +59,7 @@ class TokenStore(private val context: Context) {
         .map { prefs ->
             AuthState(
                 baseUrl = decryptPref(prefs[Keys.BASE_URL]),
+                tlsPinSha256 = decryptPref(prefs[Keys.TLS_PIN_SHA256]),
                 accessToken = decryptPref(prefs[Keys.ACCESS_TOKEN]),
                 refreshToken = decryptPref(prefs[Keys.REFRESH_TOKEN]),
                 deviceId = decryptPref(prefs[Keys.DEVICE_ID]),
@@ -71,6 +76,7 @@ class TokenStore(private val context: Context) {
     suspend fun saveBaseUrl(baseUrl: String) {
         context.dataStore.edit { prefs ->
             prefs[Keys.BASE_URL] = encryptPref(baseUrl.trim().removeSuffix("/"))
+            prefs.remove(Keys.TLS_PIN_SHA256)
         }
     }
 
@@ -79,9 +85,18 @@ class TokenStore(private val context: Context) {
         refreshToken: String,
         deviceId: String,
         fingerprintHex: String = "",
-        role: String = ""
+        role: String = "",
+        baseUrl: String = "",
+        tlsPinSha256: String = ""
     ) {
         context.dataStore.edit { prefs ->
+            if (baseUrl.isNotBlank()) {
+                prefs[Keys.BASE_URL] = encryptPref(baseUrl.trim().removeSuffix("/"))
+            }
+            if (tlsPinSha256.isNotBlank()) {
+                prefs[Keys.TLS_PIN_SHA256] = encryptPref(tlsPinSha256)
+            }
+
             prefs[Keys.ACCESS_TOKEN] = encryptPref(accessToken)
             prefs[Keys.REFRESH_TOKEN] = encryptPref(refreshToken)
             prefs[Keys.DEVICE_ID] = encryptPref(deviceId)

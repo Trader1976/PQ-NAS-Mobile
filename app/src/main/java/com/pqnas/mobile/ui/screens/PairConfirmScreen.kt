@@ -85,6 +85,12 @@ fun PairConfirmScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                Text(
+                    text = "TLS identity: ${payload.tlsPinSha256.take(24)}…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 OutlinedTextField(
                     value = deviceName,
                     onValueChange = { deviceName = it },
@@ -132,6 +138,7 @@ fun PairConfirmScreen(
                                 val ok = authRepository.consumePair(
                                     baseUrl = payload.origin,
                                     pairToken = payload.pairToken,
+                                    tlsPinSha256 = payload.tlsPinSha256,
                                     deviceName = deviceName
                                 )
                                 if (ok) {
@@ -139,8 +146,10 @@ fun PairConfirmScreen(
                                 } else {
                                     status = "Pairing failed"
                                 }
-                            } catch (e: Exception) {
-                                status = "Error: ${e.message}"
+                            } catch (_: javax.net.ssl.SSLException) {
+                                status = "Error: Server identity check failed. Re-pair with a fresh QR code."
+                            } catch (_: Exception) {
+                                status = "Error: Pairing failed. Check the server address and QR code."
                             } finally {
                                 busy = false
                             }

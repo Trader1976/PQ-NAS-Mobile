@@ -2,6 +2,7 @@ package com.pqnas.mobile.api
 
 import com.pqnas.mobile.BuildConfig
 import com.pqnas.mobile.auth.TokenStore
+import com.pqnas.mobile.security.PinnedTls
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.runBlocking
@@ -19,8 +20,15 @@ object ApiFactory {
         .add(KotlinJsonAdapterFactory())
         .build()
 
-    fun createAuthApi(baseUrl: String): AuthApi {
+    fun createAuthApi(
+        baseUrl: String,
+        tlsPinSha256: String = ""
+    ): AuthApi {
         val clientBuilder = OkHttpClient.Builder()
+
+        if (tlsPinSha256.isNotBlank()) {
+            PinnedTls.applyTo(clientBuilder, tlsPinSha256)
+        }
 
         if (BuildConfig.DEBUG) {
             clientBuilder.addInterceptor(HttpLoggingInterceptor().apply {
@@ -49,6 +57,12 @@ object ApiFactory {
     }
 
     private fun createAuthedRetrofit(baseUrl: String, tokenStore: TokenStore): Retrofit {
+        val initialState = runBlocking { tokenStore.getAuthStateOnce() }
+
+        if (initialState.tlsPinSha256.isBlank()) {
+            throw IllegalStateException("Missing server TLS pin. Re-pair with the server QR code.")
+        }
+
         val authInterceptor = Interceptor { chain ->
             val state = runBlocking { tokenStore.getAuthStateOnce() }
             val token = state.accessToken
@@ -72,7 +86,11 @@ object ApiFactory {
 
             runBlocking {
                 val state = tokenStore.getAuthStateOnce()
-                if (state.refreshToken.isBlank() || state.deviceId.isBlank()) {
+                if (
+                    state.refreshToken.isBlank() ||
+                    state.deviceId.isBlank() ||
+                    state.tlsPinSha256.isBlank()
+                ) {
                     return@runBlocking null
                 }
 
@@ -93,7 +111,10 @@ object ApiFactory {
                 }
 
                 try {
-                    val refreshed = createAuthApi(baseUrl).refresh(
+                    val refreshed = createAuthApi(
+                        baseUrl = baseUrl,
+                        tlsPinSha256 = state.tlsPinSha256
+                    ).refresh(
                         RefreshTokenRequest(
                             refresh_token = state.refreshToken,
                             device_id = state.deviceId
@@ -123,6 +144,8 @@ object ApiFactory {
         val clientBuilder = OkHttpClient.Builder()
             .addInterceptor(authInterceptor)
             .authenticator(tokenAuthenticator)
+
+        PinnedTls.applyTo(clientBuilder, initialState.tlsPinSha256)
 
         if (BuildConfig.DEBUG) {
             clientBuilder.addInterceptor(HttpLoggingInterceptor().apply {
