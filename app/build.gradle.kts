@@ -70,6 +70,7 @@ dependencies {
     implementation("com.caverock:androidsvg-aar:1.4")
     implementation("androidx.media3:media3-exoplayer:1.10.0")
     implementation("androidx.media3:media3-datasource-okhttp:1.10.0")
+    implementation("androidx.media3:media3-ui:1.10.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

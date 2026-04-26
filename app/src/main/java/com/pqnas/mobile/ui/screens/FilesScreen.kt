@@ -124,8 +124,10 @@ fun FilesScreen(
     var imagePreviewStartIndex by remember { mutableStateOf<Int?>(null) }
     var audioPlayerItems by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
     var audioPlayerStartIndex by remember { mutableStateOf<Int?>(null) }
-    var textEditorPath by remember { mutableStateOf<String?>(null) }
+    var videoPlayerItems by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
+    var videoPlayerStartIndex by remember { mutableStateOf<Int?>(null) }
     var textEditorName by remember { mutableStateOf<String?>(null) }
+    var textEditorPath by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -414,6 +416,19 @@ fun FilesScreen(
         audioPlayerItems = visibleAudioFiles
         audioPlayerStartIndex = idx
     }
+
+    fun openVideoPlayer(item: FileItemDto) {
+        if (item.type != "file") return
+        if (!isProbablyVideoFile(item.name)) return
+
+        val visibleVideoFiles = items.filter { it.type == "file" && isProbablyVideoFile(it.name) }
+        val idx = visibleVideoFiles.indexOfFirst { it.name == item.name }
+        if (idx < 0) return
+
+        videoPlayerItems = visibleVideoFiles
+        videoPlayerStartIndex = idx
+    }
+
     fun openTextEditor(item: FileItemDto) {
         if (item.type != "file") return
         if (!isProbablyTextFile(item.name)) return
@@ -910,6 +925,8 @@ fun FilesScreen(
                                         openImagePreview(item)
                                     } else if (isProbablyAudioFile(item.name)) {
                                         openAudioPlayer(item)
+                                    } else if (isProbablyVideoFile(item.name)) {
+                                        openVideoPlayer(item)
                                     } else if (isProbablyTextFile(item.name)) {
                                         openTextEditor(item)
                                     }
@@ -921,6 +938,7 @@ fun FilesScreen(
                                     when (action) {
                                         "Preview" -> openImagePreview(clickedItem)
                                         "PlayAudio" -> openAudioPlayer(clickedItem)
+                                        "PlayVideo" -> openVideoPlayer(clickedItem)
                                         "EditText" -> openTextEditor(clickedItem)
                                         "ToggleFavorite" -> toggleFavorite(clickedItem)
                                         "Share" -> openShareDialog(clickedItem)
@@ -1485,6 +1503,20 @@ fun FilesScreen(
                 }
             )
         }
+
+        videoPlayerStartIndex?.let { startIndex ->
+            VideoPlayerScreen(
+                filesRepository = filesRepository,
+                fileScope = currentScope,
+                currentPath = currentPath,
+                videoFiles = videoPlayerItems,
+                initialIndex = startIndex,
+                onClose = {
+                    videoPlayerStartIndex = null
+                    videoPlayerItems = emptyList()
+                }
+            )
+        }
         if (showSharesManager) {
             SharesManagerScreen(
                 filesRepository = filesRepository,
@@ -1782,6 +1814,16 @@ private fun FileRow(
                             )
                         }
 
+                        if (!isDir && isProbablyVideoFile(item.name)) {
+                            DropdownMenuItem(
+                                text = { Text("Play video") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onMenuAction("PlayVideo", item)
+                                }
+                            )
+                        }
+
                         if (!isDir && isProbablyTextFile(item.name)) {
                             DropdownMenuItem(
                                 text = { Text("Edit text") },
@@ -1882,7 +1924,19 @@ private fun isProbablyTextFile(name: String): Boolean {
         "java", "go", "rs", "rb", "php", "lua", "swift", "kt"
     )
 }
-
+private fun isProbablyVideoFile(name: String): Boolean {
+    val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
+    return ext in setOf(
+        "mp4",
+        "m4v",
+        "mov",
+        "mkv",
+        "webm",
+        "avi",
+        "3gp",
+        "3gpp"
+    )
+}
 private fun isProbablyImageFile(name: String): Boolean {
     val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
     return ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico")
