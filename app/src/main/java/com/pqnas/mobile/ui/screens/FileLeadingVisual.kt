@@ -69,17 +69,27 @@ internal fun FileLeadingVisual(
         item.name,
         item.mtime_unix
     ) {
-        if (
-            item.type == "file" &&
-            fileScope is FileScope.User &&
-            isThumbnailSupportedImageFile(item.name)
-        ) {
-            buildUserGalleryThumbUrl(
-                baseUrl = filesRepository.baseUrlForDisplay(),
-                relPath = relPath,
-                size = 192,
-                version = item.mtime_unix
-            )
+        if (item.type == "file" && isThumbnailSupportedImageFile(item.name)) {
+            when (fileScope) {
+                FileScope.User -> {
+                    buildUserGalleryThumbUrl(
+                        baseUrl = filesRepository.baseUrlForDisplay(),
+                        relPath = relPath,
+                        size = 192,
+                        version = item.mtime_unix
+                    )
+                }
+
+                is FileScope.Workspace -> {
+                    buildWorkspaceFileThumbUrl(
+                        baseUrl = filesRepository.baseUrlForDisplay(),
+                        workspaceId = fileScope.workspaceId,
+                        relPath = relPath,
+                        size = 192,
+                        version = item.mtime_unix
+                    )
+                }
+            }
         } else {
             null
         }
@@ -166,7 +176,29 @@ private fun FallbackFileIcon(
         }
     }
 }
+private fun buildWorkspaceFileThumbUrl(
+    baseUrl: String,
+    workspaceId: String,
+    relPath: String,
+    size: Int,
+    version: Long?
+): String? {
+    val endpoint = "${baseUrl.trim().trimEnd('/')}/api/v4/workspaces/files/thumb"
+        .toHttpUrlOrNull()
+        ?: return null
 
+    return endpoint.newBuilder()
+        .addQueryParameter("workspace_id", workspaceId)
+        .addQueryParameter("path", relPath)
+        .addQueryParameter("size", size.coerceIn(64, 1024).toString())
+        .apply {
+            if (version != null && version > 0L) {
+                addQueryParameter("v", version.toString())
+            }
+        }
+        .build()
+        .toString()
+}
 private fun buildUserGalleryThumbUrl(
     baseUrl: String,
     relPath: String,
