@@ -19,7 +19,6 @@ import com.pqnas.mobile.ui.screens.PairConfirmScreen
 import com.pqnas.mobile.ui.screens.ScanPairQrScreen
 import com.pqnas.mobile.ui.screens.ServerSetupScreen
 import com.pqnas.mobile.ui.theme.PQNASTheme
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -146,7 +145,7 @@ class MainActivity : FragmentActivity() {
                 }
 
                 LaunchedEffect(Unit) {
-                    val state = tokenStore.authState.first()
+                    val state = tokenStore.getAuthStateOnce()
                     baseUrl = state.baseUrl
                     screen = if (state.isLoggedIn) "files" else "server"
                     authLoaded = true
@@ -200,7 +199,7 @@ class MainActivity : FragmentActivity() {
                                 authRepository = authRepository,
                                 onPaired = {
                                     scope.launch {
-                                        val s = tokenStore.authState.first()
+                                        val s = tokenStore.getAuthStateOnce()
                                         baseUrl = s.baseUrl
 
                                         // Pairing just completed successfully, so do not immediately
