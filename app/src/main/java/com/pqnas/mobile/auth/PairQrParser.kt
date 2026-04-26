@@ -23,11 +23,14 @@ object PairQrParser {
         val appName = uri.getQueryParameter("app")?.trim().orEmpty()
 
         if (pairToken.isBlank() || origin.isBlank()) return null
+        val originUri = runCatching { Uri.parse(origin) }.getOrNull() ?: return null
+        if (originUri.scheme?.lowercase() != "https") return null
+        if (originUri.host.isNullOrBlank()) return null
 
         return PairQrPayload(
             version = version,
             pairToken = pairToken,
-            origin = origin,
+            origin = origin.trim().trimEnd('/'),
             appName = if (appName.isBlank()) "DNA-Nexus" else appName
         )
     }

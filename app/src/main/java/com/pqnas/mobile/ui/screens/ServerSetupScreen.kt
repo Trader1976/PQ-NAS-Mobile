@@ -31,7 +31,8 @@ import com.pqnas.mobile.R
 fun ServerSetupScreen(
     onScanPair: (String) -> Unit
 ) {
-    var baseUrl by remember { mutableStateOf("https://pqnas-dev.pqnas-test.uk") }
+    var baseUrl by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -79,10 +80,25 @@ fun ServerSetupScreen(
                 )
 
                 Button(
-                    onClick = { onScanPair(baseUrl) },
+                    onClick = {
+                        val clean = baseUrl.trim().trimEnd('/')
+                        if (!clean.startsWith("https://", ignoreCase = true)) {
+                            status = "Only HTTPS server URLs are allowed."
+                            return@Button
+                        }
+                        onScanPair(clean)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Scan pairing QR")
+                }
+
+                if (status.isNotBlank()) {
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         }

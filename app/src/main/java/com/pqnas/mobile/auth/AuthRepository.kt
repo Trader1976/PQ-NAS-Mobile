@@ -1,6 +1,7 @@
 package com.pqnas.mobile.auth
 
 import android.os.Build
+import com.pqnas.mobile.BuildConfig
 import com.pqnas.mobile.api.ApiFactory
 import com.pqnas.mobile.api.PairConsumeRequest
 
@@ -22,17 +23,19 @@ class AuthRepository(
         val model = Build.MODEL ?: ""
         val osVersion = "Android ${Build.VERSION.RELEASE ?: ""}".trim()
 
-        android.util.Log.d(
-            "PQNAS_PAIR",
-            "pair metadata manufacturer='$manufacturer' model='$model' os='$osVersion'"
-        )
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "PQNAS_PAIR",
+                "pair metadata manufacturer='$manufacturer' model='$model' os='$osVersion'"
+            )
+        }
 
         val resp = api.consumePair(
             PairConsumeRequest(
                 pair_token = pairToken,
                 device_name = deviceName,
                 platform = "android",
-                app_version = "0.1.0",
+                app_version = BuildConfig.VERSION_NAME,
                 device_model = model,
                 device_manufacturer = manufacturer,
                 os_version = osVersion

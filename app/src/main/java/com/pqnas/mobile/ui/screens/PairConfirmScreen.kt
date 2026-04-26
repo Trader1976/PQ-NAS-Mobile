@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.pqnas.mobile.BuildConfig
 import com.pqnas.mobile.auth.AuthRepository
 import com.pqnas.mobile.auth.PairQrPayload
 import kotlinx.coroutines.launch
@@ -103,7 +104,13 @@ fun PairConfirmScreen(
                             busy = true
                             status = "Pairing..."
                             try {
-                                android.util.Log.d("PQNAS_PAIR", "consumePair origin=${payload.origin} token=${payload.pairToken.take(12)}...")
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d(
+                                        "PQNAS_PAIR",
+                                        "consumePair origin=${payload.origin} token=${payload.pairToken.take(12)}..."
+                                    )
+                                }
+
                                 val ok = authRepository.consumePair(
                                     baseUrl = payload.origin,
                                     pairToken = payload.pairToken,
