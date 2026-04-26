@@ -15,7 +15,7 @@ import com.pqnas.mobile.ui.screens.ScanPairQrScreen
 import com.pqnas.mobile.ui.screens.ServerSetupScreen
 import com.pqnas.mobile.ui.theme.PQNASTheme
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
                 val context = LocalContext.current
                 val tokenStore = remember { TokenStore(context) }
                 val authRepository = remember { AuthRepository(tokenStore) }
+                val scope = rememberCoroutineScope()
 
                 var screen by remember { mutableStateOf("server") }
                 var baseUrl by remember { mutableStateOf("") }
@@ -40,9 +41,11 @@ class MainActivity : ComponentActivity() {
                 when (screen) {
                     "server" -> ServerSetupScreen(
                         onScanPair = { url ->
-                            runBlocking { tokenStore.saveBaseUrl(url) }
-                            baseUrl = url
-                            screen = "scan_pair"
+                            scope.launch {
+                                tokenStore.saveBaseUrl(url)
+                                baseUrl = url
+                                screen = "scan_pair"
+                            }
                         }
                     )
 
@@ -66,11 +69,11 @@ class MainActivity : ComponentActivity() {
                                 configuredBaseUrl = baseUrl,
                                 authRepository = authRepository,
                                 onPaired = {
-                                    runBlocking {
+                                    scope.launch {
                                         val s = tokenStore.authState.first()
                                         baseUrl = s.baseUrl
+                                        screen = "files"
                                     }
-                                    screen = "files"
                                 },
                                 onBack = {
                                     screen = "scan_pair"
@@ -89,11 +92,11 @@ class MainActivity : ComponentActivity() {
                         FilesScreen(
                             filesRepository = filesRepository,
                             onLogout = {
-                                runBlocking {
+                                scope.launch {
                                     tokenStore.clearAll()
+                                    baseUrl = ""
+                                    screen = "server"
                                 }
-                                baseUrl = ""
-                                screen = "server"
                             }
                         )
                     }
