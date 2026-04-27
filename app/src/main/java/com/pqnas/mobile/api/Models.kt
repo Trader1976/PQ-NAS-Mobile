@@ -185,3 +185,13 @@ data class RevokeShareResponse(
     val error: String? = null,
     val message: String? = null
 )
+
+data class RevokeRefreshTokenRequest(
+    val refresh_token: String,
+    val device_id: String
+)
+
+data class RevokeRefreshTokenResponse(
+    val ok: Boolean,
+    val error: String? = null
+)

@@ -14,6 +14,11 @@ interface AuthApi {
         @Body req: PairConsumeRequest
     ): PairConsumeResponse
 
+    @POST("/api/v5/token/revoke")
+    suspend fun revokeRefreshToken(
+        @Body req: RevokeRefreshTokenRequest
+    ): RevokeRefreshTokenResponse
+
     @GET("/api/v4/files/read_text")
     suspend fun readText(
         @Query("path") path: String

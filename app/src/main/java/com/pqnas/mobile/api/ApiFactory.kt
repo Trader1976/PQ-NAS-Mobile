@@ -22,13 +22,11 @@ object ApiFactory {
 
     fun createAuthApi(
         baseUrl: String,
-        tlsPinSha256: String = ""
+        tlsPinSha256: String
     ): AuthApi {
         val clientBuilder = OkHttpClient.Builder()
 
-        if (tlsPinSha256.isNotBlank()) {
-            PinnedTls.applyTo(clientBuilder, tlsPinSha256)
-        }
+        PinnedTls.applyTo(clientBuilder, tlsPinSha256)
 
         if (BuildConfig.DEBUG) {
             clientBuilder.addInterceptor(HttpLoggingInterceptor().apply {

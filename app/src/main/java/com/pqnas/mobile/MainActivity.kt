@@ -63,7 +63,7 @@ class MainActivity : FragmentActivity() {
                 }
                 fun logoutToServerScreen() {
                     scope.launch {
-                        tokenStore.clearAll()
+                        authRepository.logout()
                         baseUrl = ""
                         pairPayload = null
                         appUnlocked = false

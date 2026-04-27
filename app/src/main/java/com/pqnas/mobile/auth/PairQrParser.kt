@@ -37,6 +37,12 @@ object PairQrParser {
         if (originUri.scheme?.lowercase() != "https") return null
         if (originUri.host.isNullOrBlank()) return null
 
+        // Reject userinfo (e.g. https://legit.com@evil.com) – prevents display spoofing
+        if (!originUri.userInfo.isNullOrBlank()) return null
+
+        // Reject fragment – origins should never carry one
+        if (!originUri.fragment.isNullOrBlank()) return null
+
         return PairQrPayload(
             version = version,
             pairToken = pairToken,

@@ -73,6 +73,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.10.0")
 
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.14.1")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

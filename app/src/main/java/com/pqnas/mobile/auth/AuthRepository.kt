@@ -4,6 +4,7 @@ import android.os.Build
 import com.pqnas.mobile.BuildConfig
 import com.pqnas.mobile.api.ApiFactory
 import com.pqnas.mobile.api.PairConsumeRequest
+import com.pqnas.mobile.api.RevokeRefreshTokenRequest
 
 class AuthRepository(
     private val tokenStore: TokenStore
@@ -65,5 +66,33 @@ class AuthRepository(
         )
 
         return true
+    }
+
+    /**
+     * Revoke refresh token on the server, then wipe local auth state.
+     * Best-effort: local state is always cleared even if the server call fails.
+     */
+    suspend fun logout() {
+        try {
+            val state = tokenStore.getAuthStateOnce()
+            if (state.refreshToken.isNotBlank() &&
+                state.deviceId.isNotBlank() &&
+                state.baseUrl.isNotBlank() &&
+                state.tlsPinSha256.isNotBlank()
+            ) {
+                ApiFactory.createAuthApi(
+                    baseUrl = state.baseUrl,
+                    tlsPinSha256 = state.tlsPinSha256
+                ).revokeRefreshToken(
+                    RevokeRefreshTokenRequest(
+                        refresh_token = state.refreshToken,
+                        device_id = state.deviceId
+                    )
+                )
+            }
+        } catch (_: Exception) {
+            // Best-effort: server may be unreachable
+        }
+        tokenStore.clearAll()
     }
 }
