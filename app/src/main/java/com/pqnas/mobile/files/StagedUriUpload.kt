@@ -6,6 +6,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody
 import okio.BufferedSink
 import java.io.File
+import java.io.RandomAccessFile
 
 fun stageUriToTempFile(
     context: Context,
@@ -60,3 +61,43 @@ fun tempFileRequestBody(
         }
     }
 }
+
+
+fun tempFileSliceRequestBody(
+    file: File,
+    offset: Long,
+    byteCount: Long,
+    mimeType: String? = null,
+    onProgress: (sentBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
+): RequestBody {
+    return object : RequestBody() {
+        override fun contentType() = mimeType?.toMediaTypeOrNull()
+
+        override fun contentLength(): Long = byteCount
+
+        override fun writeTo(sink: BufferedSink) {
+            RandomAccessFile(file, "r").use { raf ->
+                raf.seek(offset)
+
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var remaining = byteCount
+                var uploaded = 0L
+
+                while (remaining > 0L) {
+                    val want = minOf(buffer.size.toLong(), remaining).toInt()
+                    val read = raf.read(buffer, 0, want)
+                    if (read == -1) break
+
+                    sink.write(buffer, 0, read)
+                    uploaded += read.toLong()
+                    remaining -= read.toLong()
+
+                    onProgress(uploaded, byteCount)
+                }
+
+                sink.flush()
+            }
+        }
+    }
+}
+

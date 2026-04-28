@@ -87,14 +87,14 @@ import com.pqnas.mobile.files.ScopedFilesOps
 import com.pqnas.mobile.files.listWorkspaces
 import okhttp3.RequestBody.Companion.toRequestBody
 import com.pqnas.mobile.files.stageUriToTempFile
-import com.pqnas.mobile.files.tempFileRequestBody
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(
     filesRepository: FilesRepository,
-    onLogout: (() -> Unit)? = null
+    onLogout: (() -> Unit)? = null,
+    onBeforeExternalPicker: () -> Unit = {}
 ) {
     var currentPath by remember { mutableStateOf<String?>(null) }
     var items by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
@@ -599,37 +599,35 @@ fun FilesScreen(
                 uploadBytesSent = 0L
                 uploadBytesTotal = size
 
-                val body = tempFileRequestBody(
-                    file = stagedFile!!,
-                    mimeType = mimeType,
-                    onProgress = { sent, total ->
-                        val nowMs = System.currentTimeMillis()
-                        val bytesDelta = sent - lastProgressUiBytes
-                        val shouldUpdate =
-                            sent == total ||
-                                    lastProgressUiBytes < 0L ||
-                                    bytesDelta >= 256 * 1024L ||
-                                    (nowMs - lastProgressUiUpdateAtMs) >= 100L
+                val onUploadProgress: (Long, Long) -> Unit = { sent, total ->
+                    val nowMs = System.currentTimeMillis()
+                    val bytesDelta = sent - lastProgressUiBytes
+                    val shouldUpdate =
+                        sent == total ||
+                                lastProgressUiBytes < 0L ||
+                                bytesDelta >= 256 * 1024L ||
+                                (nowMs - lastProgressUiUpdateAtMs) >= 100L
 
-                        if (shouldUpdate) {
-                            lastProgressUiBytes = sent
-                            lastProgressUiUpdateAtMs = nowMs
-                            mainThreadHandler.post {
-                                uploadBytesSent = sent
-                                uploadBytesTotal = total
-                            }
+                    if (shouldUpdate) {
+                        lastProgressUiBytes = sent
+                        lastProgressUiUpdateAtMs = nowMs
+                        mainThreadHandler.post {
+                            uploadBytesSent = sent
+                            uploadBytesTotal = total
                         }
                     }
-                )
-
+                }
 
                 status = "Uploading $safeFileName..."
 
-                scopedOps.upload(
+                scopedOps.uploadTempFile(
                     scope = currentScope,
                     path = targetPath,
-                    body = body,
-                    overwrite = overwrite
+                    file = stagedFile!!,
+                    mimeType = mimeType,
+                    overwrite = overwrite,
+                    onProgress = onUploadProgress,
+                    isCancelled = { uploadCancelRequested }
                 )
 
                 overwriteUploadTargetPath = null
@@ -1072,6 +1070,7 @@ fun FilesScreen(
                     },
                     modifier = Modifier.clickable {
                         showCreateMenu = false
+                        onBeforeExternalPicker()
                         uploadDocumentLauncher.launch(arrayOf("*/*"))
                     }
                 )

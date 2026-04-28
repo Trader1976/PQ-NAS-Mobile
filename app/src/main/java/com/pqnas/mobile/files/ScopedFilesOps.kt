@@ -2,6 +2,7 @@ package com.pqnas.mobile.files
 
 import android.content.Context
 import okhttp3.RequestBody
+import java.io.File
 import okhttp3.ResponseBody
 
 class ScopedFilesOps(
@@ -107,6 +108,37 @@ class ScopedFilesOps(
         when (scope) {
             FileScope.User -> repo.upload(path, body, overwrite)
             is FileScope.Workspace -> repo.uploadWorkspaceFile(scope.workspaceId, path, body, overwrite)
+        }
+
+    suspend fun uploadTempFile(
+        scope: FileScope,
+        path: String,
+        file: File,
+        mimeType: String? = null,
+        overwrite: Boolean = false,
+        onProgress: (sentBytes: Long, totalBytes: Long) -> Unit = { _, _ -> },
+        isCancelled: () -> Boolean = { false }
+    ) =
+        when (scope) {
+            FileScope.User -> repo.uploadChunkedFromTempFile(
+                path = path,
+                file = file,
+                mimeType = mimeType,
+                overwrite = overwrite,
+                onProgress = onProgress,
+                isCancelled = isCancelled
+            )
+
+            is FileScope.Workspace -> repo.uploadWorkspaceFile(
+                workspaceId = scope.workspaceId,
+                path = path,
+                body = tempFileRequestBody(
+                    file = file,
+                    mimeType = mimeType,
+                    onProgress = onProgress
+                ),
+                overwrite = overwrite
+            )
         }
 
     suspend fun listVersions(scope: FileScope, path: String) =

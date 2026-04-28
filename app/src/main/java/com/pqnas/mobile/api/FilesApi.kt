@@ -10,6 +10,53 @@ import retrofit2.http.Query
 import retrofit2.http.Streaming
 import retrofit2.http.Headers
 
+
+
+data class ChunkedUploadStartRequest(
+    val path: String,
+    val size_bytes: Long,
+    val overwrite: Boolean = false
+)
+
+data class ChunkedUploadStartResponse(
+    val ok: Boolean,
+    val upload_id: String,
+    val path: String? = null,
+    val size_bytes: Long = 0L,
+    val chunk_size: Long = 67108864L,
+    val chunks_total: Long = 0L
+)
+
+data class ChunkedUploadChunkResponse(
+    val ok: Boolean,
+    val upload_id: String? = null,
+    val index: Long = 0L,
+    val bytes: Long = 0L
+)
+
+data class ChunkedUploadFinishRequest(
+    val upload_id: String
+)
+
+data class ChunkedUploadFinishResponse(
+    val ok: Boolean,
+    val chunked: Boolean = true,
+    val fingerprint_hex: String? = null,
+    val path: String? = null,
+    val bytes: Long = 0L,
+    val overwrite: Boolean = false
+)
+
+data class ChunkedUploadCancelRequest(
+    val upload_id: String
+)
+
+data class ChunkedUploadCancelResponse(
+    val ok: Boolean,
+    val upload_id: String? = null,
+    val removed_entries: Long = 0L
+)
+
 interface FilesApi {
     @GET("/api/v4/files/list")
     suspend fun listFiles(
@@ -59,6 +106,31 @@ interface FilesApi {
         @Query("overwrite") overwrite: Int = 0,
         @Body body: RequestBody
     ): UploadFileResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/uploads/start")
+    suspend fun startChunkedUpload(
+        @Body request: ChunkedUploadStartRequest
+    ): ChunkedUploadStartResponse
+
+    @PUT("/api/v4/uploads/chunk")
+    suspend fun uploadChunk(
+        @Query("upload_id") uploadId: String,
+        @Query("index") index: Long,
+        @Body body: RequestBody
+    ): ChunkedUploadChunkResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/uploads/finish")
+    suspend fun finishChunkedUpload(
+        @Body request: ChunkedUploadFinishRequest
+    ): ChunkedUploadFinishResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/uploads/cancel")
+    suspend fun cancelChunkedUpload(
+        @Body request: ChunkedUploadCancelRequest
+    ): ChunkedUploadCancelResponse
 
     @GET("/api/v4/files/favorites")
     suspend fun listFavorites(): FavoritesListResponse
