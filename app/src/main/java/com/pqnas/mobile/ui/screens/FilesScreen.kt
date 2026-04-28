@@ -583,6 +583,17 @@ fun FilesScreen(
                 }
 
                 val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+
+                // Large Android document/content URIs may take a while to stage into
+                // our cache before chunked upload can begin. Show visible feedback
+                // immediately so the app does not feel frozen.
+                uploadInProgress = true
+                uploadCancelRequested = false
+                uploadFileName = safeFileName
+                uploadBytesSent = 0L
+                uploadBytesTotal = 0L
+                status = "Preparing upload: $safeFileName..."
+
                 stagedFile = withContext(Dispatchers.IO) {
                     stageUriToTempFile(
                         context = context,
@@ -592,11 +603,6 @@ fun FilesScreen(
                 }
 
                 val size = stagedFile!!.length()
-
-                uploadInProgress = true
-                uploadCancelRequested = false
-                uploadFileName = safeFileName
-                uploadBytesSent = 0L
                 uploadBytesTotal = size
 
                 val onUploadProgress: (Long, Long) -> Unit = { sent, total ->
@@ -790,7 +796,7 @@ fun FilesScreen(
                 }
             )
 
-            if (uploadInProgress && uploadBytesTotal > 0L) {
+            if (uploadInProgress) {
                 Spacer(Modifier.height(12.dp))
 
                 Card(
@@ -805,7 +811,9 @@ fun FilesScreen(
                             .padding(12.dp)
                     ) {
                         Text(
-                            text = uploadFileName?.let { "Uploading $it" } ?: "Uploading...",
+                            text = uploadFileName?.let {
+                                if (uploadBytesTotal <= 0L) "Preparing $it..." else "Uploading $it"
+                            } ?: if (uploadBytesTotal <= 0L) "Preparing upload..." else "Uploading...",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -823,9 +831,13 @@ fun FilesScreen(
                         Spacer(Modifier.height(8.dp))
 
                         Text(
-                            text = "${((uploadBytesSent * 100) / uploadBytesTotal).coerceIn(0, 100)}% • ${
-                                formatBytes(uploadBytesSent)
-                            } / ${formatBytes(uploadBytesTotal)}",
+                            text = if (uploadBytesTotal <= 0L) {
+                                "Gathering file... please wait"
+                            } else {
+                                "${((uploadBytesSent * 100) / uploadBytesTotal).coerceIn(0, 100)}% • ${
+                                    formatBytes(uploadBytesSent)
+                                } / ${formatBytes(uploadBytesTotal)}"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
