@@ -17,6 +17,10 @@ data class CachedFileList(
 class FileListCache(
     context: Context
 ) {
+    private companion object {
+        const val MAX_CACHE_AGE_MS = 24L * 60L * 60L * 1000L
+    }
+
     private val appContext = context.applicationContext
     private val cacheDir = File(appContext.filesDir, "file_list_cache")
 
@@ -38,6 +42,14 @@ class FileListCache(
             if (jsonText.isBlank()) return@runCatching null
 
             val root = JSONObject(jsonText)
+
+            val savedAt = root.optLong("savedAtEpochMs", 0L)
+            val ageMs = System.currentTimeMillis() - savedAt
+            if (savedAt <= 0L || ageMs < 0L || ageMs > MAX_CACHE_AGE_MS) {
+                runCatching { file.delete() }
+                return@runCatching null
+            }
+
             val arr = root.optJSONArray("items") ?: JSONArray()
 
             val cachedItems = buildList {
@@ -113,6 +125,18 @@ class FileListCache(
             for (file in files) {
                 val raw = file.readText()
                 if (raw.isBlank()) continue
+
+                if (EncryptedAuthValue.needsUpgrade(raw)) {
+                    val jsonText = EncryptedAuthValue.decryptOrLegacy(raw)
+                    if (jsonText.isNotBlank()) {
+                        runCatching {
+                            JSONObject(jsonText)
+                            file.writeText(EncryptedAuthValue.encrypt(jsonText))
+                        }
+                    }
+                    continue
+                }
+
                 if (EncryptedAuthValue.isEncrypted(raw)) continue
 
                 // Only migrate valid legacy JSON cache files. Invalid/corrupt files are ignored.

@@ -86,5 +86,6 @@ class AuthRepository(
             // Best-effort: server may be unreachable
         }
         tokenStore.clearAll()
+        tokenStore.clearWorkspaceEditorSession()
     }
 }

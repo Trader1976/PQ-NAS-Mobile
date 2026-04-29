@@ -47,13 +47,16 @@ class MainActivity : FragmentActivity() {
 
                 // Android file picker temporarily moves our app through onStop().
                 // Do not lock the app for that intentional external picker handoff.
-                val suppressNextAppLock = remember { mutableStateOf(false) }
+                val externalPickerLaunchedAtMs = remember { mutableLongStateOf(0L) }
                 DisposableEffect(lifecycleOwner, authLoaded, screen) {
                     val observer = object : DefaultLifecycleObserver {
                         override fun onStop(owner: LifecycleOwner) {
                             if (authLoaded && screen == "files") {
-                                if (suppressNextAppLock.value) {
-                                    suppressNextAppLock.value = false
+                                val pickerHandoffAgeMs =
+                                    System.currentTimeMillis() - externalPickerLaunchedAtMs.longValue
+
+                                if (pickerHandoffAgeMs in 0L..2_000L) {
+                                    externalPickerLaunchedAtMs.longValue = 0L
                                     return
                                 }
 
@@ -250,7 +253,7 @@ class MainActivity : FragmentActivity() {
                                     logoutToServerScreen()
                                 },
                                 onBeforeExternalPicker = {
-                                    suppressNextAppLock.value = true
+                                    externalPickerLaunchedAtMs.longValue = System.currentTimeMillis()
                                 }
                             )
                         }

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="file" path="datastore/" />
+    <exclude domain="file" path="file_list_cache/" />
+    <exclude domain="sharedpref" path="workspace_editor_session.xml" />
 </full-backup-content>

@@ -1,6 +1,7 @@
 package com.pqnas.mobile.auth
 
 import android.content.Context
+import com.pqnas.mobile.files.WorkspaceEditorSession
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -70,6 +71,7 @@ class TokenStore(private val context: Context) {
 
     suspend fun getAuthStateOnce(): AuthState {
         migrateLegacyPlaintextIfNeeded()
+        WorkspaceEditorSession.migrateIfPresent(context)
         return authState.first()
     }
 
@@ -129,12 +131,26 @@ class TokenStore(private val context: Context) {
         context.dataStore.edit { it.clear() }
     }
 
+    fun clearWorkspaceEditorSession() {
+        WorkspaceEditorSession.clear(context)
+    }
+
     private suspend fun migrateLegacyPlaintextIfNeeded() {
         context.dataStore.edit { prefs ->
             for (key in Keys.all) {
                 val raw = prefs[key].orEmpty()
-                if (raw.isNotBlank() && !EncryptedAuthValue.isEncrypted(raw)) {
+                if (raw.isBlank()) continue
+
+                if (!EncryptedAuthValue.isEncrypted(raw)) {
                     prefs[key] = encryptPref(raw)
+                    continue
+                }
+
+                if (EncryptedAuthValue.needsUpgrade(raw)) {
+                    val plain = EncryptedAuthValue.decryptOrLegacy(raw)
+                    if (plain.isNotBlank()) {
+                        prefs[key] = encryptPref(plain)
+                    }
                 }
             }
         }
