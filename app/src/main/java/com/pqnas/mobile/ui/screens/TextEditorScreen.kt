@@ -75,10 +75,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.height
-
+import android.view.MotionEvent
+import android.view.VelocityTracker
+import android.view.ViewConfiguration
+import android.widget.OverScroller
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,15 +160,35 @@ fun TextEditorScreen(
         return editorBridge.latestText
     }
 
-    fun enterEditMode() {
+
+    fun enterEditMode(selectionOffset: Int? = null) {
         if (loading || saving || readOnly) return
 
         editMode = true
 
         editorViewRef?.post {
             val view = editorViewRef ?: return@post
-            view.requestFocus()
+
+            val editableKeyListener = view.getTag() as? KeyListener
+            if (editableKeyListener != null && view.keyListener !== editableKeyListener) {
+                view.keyListener = editableKeyListener
+            }
+
+            view.showSoftInputOnFocus = true
+            view.isFocusable = true
+            view.isFocusableInTouchMode = true
             view.isCursorVisible = true
+            view.requestFocus()
+
+            val textLen = view.text?.length ?: 0
+            val fallbackSelection = when {
+                view.selectionStart >= 0 -> view.selectionStart
+                else -> editorSelectionStart
+            }
+
+            val targetSelection = (selectionOffset ?: fallbackSelection).coerceIn(0, textLen)
+            view.setSelection(targetSelection)
+            editorSelectionStart = targetSelection
 
             val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
             imm?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
@@ -176,7 +199,11 @@ fun TextEditorScreen(
         editMode = false
 
         val view = editorViewRef
-        view?.clearFocus()
+        view?.apply {
+            isCursorVisible = false
+            showSoftInputOnFocus = false
+            clearFocus()
+        }
 
         val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         imm?.hideSoftInputFromWindow(view?.windowToken, 0)
@@ -300,7 +327,7 @@ fun TextEditorScreen(
                 mtimeEpoch = resp.mtime_epoch ?: mtimeEpoch
                 sha256 = resp.sha256 ?: sha256
                 saving = false
-                editMode = false
+                exitEditMode()
                 status = "Saved."
                 onSaved()
             } catch (e: Exception) {
@@ -598,6 +625,14 @@ fun TextEditorScreen(
                         factory = { context ->
                             ScrollAwareEditText(context).apply {
                                 editorViewRef = this
+                                canEdit = !loading && !saving && !readOnly
+                                editingEnabled = editMode && !loading && !saving && !readOnly
+                                onTapToEditAtOffset = { offset ->
+                                    enterEditMode(offset)
+                                }
+                                onImeBackPressed = {
+                                    exitEditMode()
+                                }
                                 onFocusChangedCallback = { focused ->
                                     editorHasFocus = focused
                                 }
@@ -705,9 +740,22 @@ fun TextEditorScreen(
                                 view.keyListener = desiredKeyListener
                             }
 
+                            view.canEdit = !loading && !saving && !readOnly
+                            view.editingEnabled = editableNow
+                            view.onTapToEditAtOffset = { offset ->
+                                enterEditMode(offset)
+                            }
+                            view.onImeBackPressed = {
+                                exitEditMode()
+                            }
+
                             view.showSoftInputOnFocus = editableNow
-                            view.isFocusable = editableNow
-                            view.isFocusableInTouchMode = editableNow
+
+                            // Important:
+                            // Keep the view focusable/touchable even outside edit mode.
+                            // We make it read-only with keyListener = null instead.
+                            view.isFocusable = true
+                            view.isFocusableInTouchMode = true
                             view.isCursorVisible = editableNow
 
                             // Do not push stale Compose text back into the native EditText
@@ -846,11 +894,148 @@ private class ScrollAwareEditText(
     var onScrollMetricsChanged: ((scrollY: Int, scrollRange: Int) -> Unit)? = null
     var onFocusChangedCallback: ((Boolean) -> Unit)? = null
 
+    var canEdit: Boolean = false
+    var editingEnabled: Boolean = false
+    var onTapToEditAtOffset: ((Int) -> Unit)? = null
+    var onImeBackPressed: (() -> Unit)? = null
+
+    private val flingScroller = OverScroller(context)
+    private val viewConfig = ViewConfiguration.get(context)
+    private val touchSlop = viewConfig.scaledTouchSlop
+    private val minFlingVelocity = viewConfig.scaledMinimumFlingVelocity
+    private val maxFlingVelocity = viewConfig.scaledMaximumFlingVelocity
+
+    private var velocityTracker: VelocityTracker? = null
+    private var downX = 0f
+    private var downY = 0f
+    private var lastY = 0f
+    private var dragging = false
+
     override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
-            clearFocus()
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_UP) {
+                onImeBackPressed?.invoke()
+            }
+
+            // Consume keyboard back so it does not bubble up and close the editor.
+            return true
         }
+
         return super.onKeyPreIme(keyCode, event)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!editingEnabled) {
+            return handleBrowseTouch(event)
+        }
+
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            flingScroller.forceFinished(true)
+        }
+
+        return super.onTouchEvent(event)
+    }
+
+    private fun handleBrowseTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                flingScroller.forceFinished(true)
+
+                parent?.requestDisallowInterceptTouchEvent(true)
+
+                downX = event.x
+                downY = event.y
+                lastY = event.y
+                dragging = false
+
+                recycleVelocityTracker()
+                velocityTracker = VelocityTracker.obtain().also {
+                    it.addMovement(event)
+                }
+
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                velocityTracker?.addMovement(event)
+
+                val dx = abs(event.x - downX)
+                val dy = abs(event.y - downY)
+
+                if (!dragging && (dx > touchSlop || dy > touchSlop)) {
+                    dragging = true
+                }
+
+                if (dragging) {
+                    val deltaY = (lastY - event.y).toInt()
+                    if (deltaY != 0) {
+                        scrollTo(scrollX, clampVerticalScroll(scrollY + deltaY))
+                        publishScrollMetrics()
+                    }
+                    lastY = event.y
+                }
+
+                return true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                velocityTracker?.addMovement(event)
+                parent?.requestDisallowInterceptTouchEvent(false)
+
+                if (dragging) {
+                    velocityTracker?.computeCurrentVelocity(
+                        1000,
+                        maxFlingVelocity.toFloat()
+                    )
+
+                    val velocityY = velocityTracker?.yVelocity ?: 0f
+                    val maxScroll = maxVerticalScroll()
+
+                    if (abs(velocityY) >= minFlingVelocity && maxScroll > 0) {
+                        flingScroller.fling(
+                            scrollX,
+                            scrollY,
+                            0,
+                            (-velocityY).toInt(),
+                            0,
+                            0,
+                            0,
+                            maxScroll
+                        )
+                        postInvalidateOnAnimation()
+                    }
+                } else if (canEdit) {
+                    val textLen = text?.length ?: 0
+                    val offset = getOffsetForPosition(event.x, event.y)
+                        .coerceIn(0, textLen)
+
+                    onTapToEditAtOffset?.invoke(offset)
+                }
+
+                dragging = false
+                recycleVelocityTracker()
+                return true
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
+                dragging = false
+                recycleVelocityTracker()
+                return true
+            }
+        }
+
+        return true
+    }
+
+    override fun computeScroll() {
+        super.computeScroll()
+
+        if (flingScroller.computeScrollOffset()) {
+            scrollTo(scrollX, clampVerticalScroll(flingScroller.currY))
+            publishScrollMetrics()
+            postInvalidateOnAnimation()
+        }
     }
 
     override fun onFocusChanged(
@@ -883,8 +1068,17 @@ private class ScrollAwareEditText(
         publishScrollMetrics()
     }
 
+    private fun clampVerticalScroll(value: Int): Int {
+        return value.coerceIn(0, maxVerticalScroll())
+    }
+
     private fun maxVerticalScroll(): Int {
         return (computeVerticalScrollRange() - height).coerceAtLeast(0)
+    }
+
+    private fun recycleVelocityTracker() {
+        velocityTracker?.recycle()
+        velocityTracker = null
     }
 
     fun publishScrollMetrics() {
