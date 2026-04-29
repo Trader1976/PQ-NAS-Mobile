@@ -16,47 +16,47 @@ class FilesRepository(
     private val tokenStore: TokenStore,
     private val baseUrlProvider: () -> String
 ) {
-    suspend fun list(path: String? = null) =
+    private val filesApi by lazy {
         ApiFactory.createFilesApi(
             baseUrl = baseUrlProvider(),
             tokenStore = tokenStore
-        ).listFiles(path)
-
-    fun baseUrlForDisplay(): String = baseUrlProvider()
-
-    fun createAuthedOkHttpClient() =
-        ApiFactory.createAuthedOkHttpClient(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
         )
+    }
 
-    internal fun createWorkspaceFilesApiInternal() =
+    private val workspaceFilesApi by lazy {
         ApiFactory.createWorkspaceFilesApi(
             baseUrl = baseUrlProvider(),
             tokenStore = tokenStore
         )
-    internal fun createFilesApiInternal() =
-        ApiFactory.createFilesApi(
+    }
+
+    private val authedOkHttpClient by lazy {
+        ApiFactory.createAuthedOkHttpClient(
             baseUrl = baseUrlProvider(),
             tokenStore = tokenStore
         )
+    }
+
+    suspend fun list(path: String? = null) =
+        filesApi.listFiles(path)
+
+    fun baseUrlForDisplay(): String = baseUrlProvider()
+
+    fun createAuthedOkHttpClient() =
+        authedOkHttpClient
+
+    internal fun createWorkspaceFilesApiInternal() =
+        workspaceFilesApi
+    internal fun createFilesApiInternal() =
+        filesApi
     suspend fun getMyStorage() =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).getMyStorage()
+        filesApi.getMyStorage()
 
     suspend fun getFavorites() =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).listFavorites()
+        filesApi.listFavorites()
 
     suspend fun addFavorite(path: String, type: String) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).addFavorite(
+        filesApi.addFavorite(
             FavoriteMutateRequest(
                 path = path,
                 type = if (type == "dir") "dir" else "file"
@@ -64,10 +64,7 @@ class FilesRepository(
         )
 
     suspend fun removeFavorite(path: String, type: String) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).removeFavorite(
+        filesApi.removeFavorite(
             FavoriteMutateRequest(
                 path = path,
                 type = if (type == "dir") "dir" else "file"
@@ -75,16 +72,10 @@ class FilesRepository(
         )
 
     suspend fun getShares(workspaceId: String? = null) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).listShares(workspaceId)
+        filesApi.listShares(workspaceId)
 
     suspend fun createShare(path: String, type: String, expiresSec: Long? = 86400L) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).createShare(
+        filesApi.createShare(
             com.pqnas.mobile.api.CreateShareRequest(
                 path = path,
                 type = if (type == "dir") "dir" else "file",
@@ -93,24 +84,15 @@ class FilesRepository(
         )
 
     suspend fun revokeShare(token: String) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).revokeShare(
+        filesApi.revokeShare(
             com.pqnas.mobile.api.RevokeShareRequest(token)
         )
 
     suspend fun download(path: String): ResponseBody =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).downloadFile(path)
+        filesApi.downloadFile(path)
 
     suspend fun readText(path: String) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).readTextFile(path)
+        filesApi.readTextFile(path)
 
     suspend fun writeText(
         path: String,
@@ -118,10 +100,7 @@ class FilesRepository(
         expectedMtimeEpoch: Long? = null,
         expectedSha256: String? = null
     ) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).writeTextFile(
+        filesApi.writeTextFile(
             com.pqnas.mobile.api.WriteTextRequest(
                 path = path,
                 text = text,
@@ -131,28 +110,16 @@ class FilesRepository(
         )
 
     suspend fun delete(path: String) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).deleteFile(path)
+        filesApi.deleteFile(path)
 
     suspend fun move(from: String, to: String) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).moveFile(from, to)
+        filesApi.moveFile(from, to)
 
     suspend fun mkdir(path: String) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).mkdir(path)
+        filesApi.mkdir(path)
 
     suspend fun upload(path: String, body: RequestBody, overwrite: Boolean = false) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).uploadFile(
+        filesApi.uploadFile(
             path = path,
             overwrite = if (overwrite) 1 else 0,
             body = body
@@ -166,10 +133,7 @@ class FilesRepository(
         onProgress: (sentBytes: Long, totalBytes: Long) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false }
     ) {
-        val api = ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        )
+        val api = filesApi
 
         val totalBytes = file.length()
         var uploadId = ""
@@ -250,10 +214,7 @@ class FilesRepository(
     }
 
     suspend fun createTextFile(path: String, text: String = "", overwrite: Boolean = false) =
-        ApiFactory.createFilesApi(
-            baseUrl = baseUrlProvider(),
-            tokenStore = tokenStore
-        ).uploadFile(
+        filesApi.uploadFile(
             path = path,
             overwrite = if (overwrite) 1 else 0,
             body = text.toByteArray(Charsets.UTF_8).toRequestBody(null)

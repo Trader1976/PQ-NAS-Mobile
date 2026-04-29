@@ -70,6 +70,8 @@ import com.pqnas.mobile.files.FileTypeIcons
 import com.pqnas.mobile.files.FilesRepository
 import com.pqnas.mobile.files.SvgIconLoader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
@@ -99,6 +101,8 @@ fun FilesScreen(
     var currentPath by remember { mutableStateOf<String?>(null) }
     var items by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
     var status by remember { mutableStateOf("Loading...") }
+    var listLoading by remember { mutableStateOf(true) }
+    var startupEmptyStateGrace by remember { mutableStateOf(true) }
     var myStorage by remember { mutableStateOf<MeStorageResponse?>(null) }
     var storageStatus by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
@@ -140,6 +144,7 @@ fun FilesScreen(
 
     var currentScope by remember { mutableStateOf<FileScope>(FileScope.User) }
     var workspaces by remember { mutableStateOf<List<WorkspaceListItemDto>>(emptyList()) }
+    var loadGeneration by remember { mutableStateOf(0) }
 
     var overwriteUploadTargetPath by remember { mutableStateOf<String?>(null) }
     var overwriteUploadUri by remember { mutableStateOf<Uri?>(null) }
@@ -195,22 +200,53 @@ fun FilesScreen(
     }
 
     fun load(path: String?) {
+        loadGeneration += 1
+        val requestGeneration = loadGeneration
+        val scopeSnapshot = currentScope
+
+        listLoading = true
+        status = "Loading..."
+
         scope.launch {
-            status = "Loading..."
             try {
-                val resp = scopedOps.list(currentScope, path)
+                val resp = scopedOps.list(scopeSnapshot, path)
 
-                val favs = try {
-                    filesRepository.getFavorites()
-                } catch (_: Exception) {
-                    null
+                if (requestGeneration != loadGeneration) return@launch
+
+                val baseItems = resp.items
+                    .sortedWith(
+                        compareBy<FileItemDto> { it.type != "dir" }
+                            .thenBy { it.name.lowercase(Locale.getDefault()) }
+                    )
+
+                currentPath = if (resp.path.isBlank()) null else resp.path
+
+                if (!favoritesOnly) {
+                    items = baseItems
+                    status = "OK"
+                } else {
+                    items = emptyList()
+                    status = "Loading favorites..."
                 }
 
-                val shares = try {
-                    scopedOps.getShares(currentScope)
-                } catch (_: Exception) {
-                    null
+                listLoading = false
+
+                val favsDeferred = async {
+                    runCatching { filesRepository.getFavorites() }.getOrNull()
                 }
+
+                val sharesDeferred = async {
+                    runCatching { scopedOps.getShares(scopeSnapshot) }.getOrNull()
+                }
+
+                val storageDeferred = async {
+                    runCatching { filesRepository.getMyStorage() }
+                }
+
+                val favs = favsDeferred.await()
+                val shares = sharesDeferred.await()
+
+                if (requestGeneration != loadGeneration) return@launch
 
                 val favoriteKeys = favs?.items?.map {
                     favoriteKey(it.type, it.path)
@@ -220,22 +256,17 @@ fun FilesScreen(
                     shareKey(it.type, it.path)
                 }?.toSet() ?: emptySet()
 
-                val mergedItems = resp.items
-                    .sortedWith(
-                        compareBy<FileItemDto> { it.type != "dir" }
-                            .thenBy { it.name.lowercase(Locale.getDefault()) }
-                    )
-                    .map { item ->
-                        val fullItemPath = buildItemPath(resp.path.ifBlank { null }, item.name)
-                        item.copy(
-                            isFavorite = favoriteKeys.contains(
-                                favoriteKey(item.type, fullItemPath)
-                            ),
-                            isShared = shareKeys.contains(
-                                shareKey(item.type, fullItemPath)
-                            )
+                val mergedItems = baseItems.map { item ->
+                    val fullItemPath = buildItemPath(resp.path.ifBlank { null }, item.name)
+                    item.copy(
+                        isFavorite = favoriteKeys.contains(
+                            favoriteKey(item.type, fullItemPath)
+                        ),
+                        isShared = shareKeys.contains(
+                            shareKey(item.type, fullItemPath)
                         )
-                    }
+                    )
+                }
 
                 items = if (favoritesOnly) {
                     mergedItems.filter { it.isFavorite }
@@ -243,23 +274,29 @@ fun FilesScreen(
                     mergedItems
                 }
 
-                currentPath = if (resp.path.isBlank()) null else resp.path
-
-                try {
-                    myStorage = filesRepository.getMyStorage()
-                    storageStatus = ""
-                } catch (e: Exception) {
-                    myStorage = null
-                    storageStatus = friendlyHttpMessage("Storage", e)
-                }
-
                 status = "OK"
+
+                val storageResult = storageDeferred.await()
+
+                if (requestGeneration != loadGeneration) return@launch
+
+                storageResult.fold(
+                    onSuccess = {
+                        myStorage = it
+                        storageStatus = ""
+                    },
+                    onFailure = { e ->
+                        myStorage = null
+                        storageStatus = friendlyHttpMessage("Storage", e)
+                    }
+                )
             } catch (e: Exception) {
+                if (requestGeneration != loadGeneration) return@launch
+                listLoading = false
                 status = friendlyHttpMessage("Load", e)
             }
         }
     }
-
     fun refreshCurrent() {
         load(currentPath)
     }
@@ -699,6 +736,11 @@ fun FilesScreen(
     }
 
     LaunchedEffect(Unit) {
+        delay(1_200L)
+        startupEmptyStateGrace = false
+    }
+
+    LaunchedEffect(Unit) {
         refreshWorkspaces()
         load(null)
     }
@@ -905,16 +947,24 @@ fun FilesScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = if (favoritesOnly) "No favorites here" else "No files here",
+                            text = when {
+                                (listLoading || startupEmptyStateGrace) -> "Loading files..."
+                                favoritesOnly -> "No favorites here"
+                                else -> "No files here"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = if (favoritesOnly)
-                                "This folder has no favorite items."
-                            else
-                                "This folder is empty or could not be loaded.",
+                            text = when {
+                                (listLoading || startupEmptyStateGrace) ->
+                                    "Contacting DNA-Nexus server..."
+                                favoritesOnly ->
+                                    "This folder has no favorite items."
+                                else ->
+                                    "This folder is empty or could not be loaded."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
