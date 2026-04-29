@@ -85,6 +85,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import com.pqnas.mobile.api.WorkspaceListItemDto
 import com.pqnas.mobile.files.FileScope
+import com.pqnas.mobile.files.FileListCache
 import com.pqnas.mobile.files.ScopedFilesOps
 import com.pqnas.mobile.files.listWorkspaces
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -98,11 +99,33 @@ fun FilesScreen(
     onLogout: (() -> Unit)? = null,
     onBeforeExternalPicker: () -> Unit = {}
 ) {
-    var currentPath by remember { mutableStateOf<String?>(null) }
-    var items by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
-    var status by remember { mutableStateOf("Loading...") }
-    var listLoading by remember { mutableStateOf(true) }
-    var startupEmptyStateGrace by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val initialFileListCache = remember(context) {
+        FileListCache(context.applicationContext)
+    }
+    val initialCachedUserRoot = remember(filesRepository, initialFileListCache) {
+        initialFileListCache.load(
+            namespace = filesRepository.baseUrlForDisplay(),
+            scope = FileScope.User,
+            path = null
+        )
+    }
+
+    var currentPath by remember { mutableStateOf<String?>(initialCachedUserRoot?.path) }
+    var items by remember {
+        mutableStateOf<List<FileItemDto>>(initialCachedUserRoot?.items ?: emptyList())
+    }
+    var status by remember {
+        mutableStateOf(
+            if (initialCachedUserRoot != null) {
+                "Cached files — refreshing..."
+            } else {
+                "Loading..."
+            }
+        )
+    }
+    var listLoading by remember { mutableStateOf(initialCachedUserRoot == null) }
+    var startupEmptyStateGrace by remember { mutableStateOf(initialCachedUserRoot == null) }
     var myStorage by remember { mutableStateOf<MeStorageResponse?>(null) }
     var storageStatus by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
@@ -134,12 +157,12 @@ fun FilesScreen(
     var textEditorPath by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val mainThreadHandler = remember { Handler(Looper.getMainLooper()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scopedOps = remember(filesRepository, context) {
         ScopedFilesOps(filesRepository, context.applicationContext)
     }
+    val fileListCache = initialFileListCache
     val thumbnailImageLoader = rememberFileThumbnailImageLoader(filesRepository)
 
     var currentScope by remember { mutableStateOf<FileScope>(FileScope.User) }
@@ -204,8 +227,27 @@ fun FilesScreen(
         val requestGeneration = loadGeneration
         val scopeSnapshot = currentScope
 
-        listLoading = true
-        status = "Loading..."
+        val cacheNamespace = filesRepository.baseUrlForDisplay()
+        val cached = fileListCache.load(
+            namespace = cacheNamespace,
+            scope = scopeSnapshot,
+            path = path
+        )
+
+        if (cached != null) {
+            currentPath = cached.path
+            items = if (favoritesOnly) {
+                cached.items.filter { it.isFavorite }
+            } else {
+                cached.items
+            }
+            listLoading = false
+            startupEmptyStateGrace = false
+            status = "Cached files — refreshing..."
+        } else {
+            listLoading = true
+            status = "Loading..."
+        }
 
         scope.launch {
             try {
@@ -220,6 +262,13 @@ fun FilesScreen(
                     )
 
                 currentPath = if (resp.path.isBlank()) null else resp.path
+
+                fileListCache.save(
+                    namespace = cacheNamespace,
+                    scope = scopeSnapshot,
+                    path = currentPath,
+                    items = baseItems
+                )
 
                 if (!favoritesOnly) {
                     items = baseItems
@@ -273,6 +322,13 @@ fun FilesScreen(
                 } else {
                     mergedItems
                 }
+
+                fileListCache.save(
+                    namespace = cacheNamespace,
+                    scope = scopeSnapshot,
+                    path = currentPath,
+                    items = mergedItems
+                )
 
                 status = "OK"
 
