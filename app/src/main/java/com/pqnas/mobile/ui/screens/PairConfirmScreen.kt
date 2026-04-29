@@ -1,6 +1,7 @@
 package com.pqnas.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,7 +18,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.pqnas.mobile.R
 import com.pqnas.mobile.auth.AuthRepository
 import com.pqnas.mobile.auth.PairQrPayload
 import kotlinx.coroutines.launch
@@ -66,6 +70,23 @@ fun PairConfirmScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(170.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.cpunk_about),
+                        contentDescription = "CPUNK DNA-Nexus mascot",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
                 Text(
                     text = "Server: ${payload.origin}",
                     style = MaterialTheme.typography.bodyMedium,
