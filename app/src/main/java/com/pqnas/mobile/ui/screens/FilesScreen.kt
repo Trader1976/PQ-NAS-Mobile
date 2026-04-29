@@ -1082,6 +1082,7 @@ fun FilesScreen(
                                                 status = "Folder download not implemented yet: ${clickedItem.name}"
                                             } else {
                                                 pendingDownloadItem = clickedItem
+                                                onBeforeExternalPicker()
                                                 createDocumentLauncher.launch(clickedItem.name)
                                             }
                                         }

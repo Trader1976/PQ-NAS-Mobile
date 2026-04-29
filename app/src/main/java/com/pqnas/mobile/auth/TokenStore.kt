@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.io.File
 import java.io.IOException
 
 private val Context.dataStore by preferencesDataStore(name = "pqnas_auth")
@@ -133,6 +134,15 @@ class TokenStore(private val context: Context) {
 
     fun clearWorkspaceEditorSession() {
         WorkspaceEditorSession.clear(context)
+    }
+
+    fun clearFileListCache() {
+        val cacheDir = File(context.filesDir, "file_list_cache")
+        runCatching {
+            if (cacheDir.isDirectory) {
+                cacheDir.deleteRecursively()
+            }
+        }
     }
 
     private suspend fun migrateLegacyPlaintextIfNeeded() {

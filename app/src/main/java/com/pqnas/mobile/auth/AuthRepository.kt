@@ -87,5 +87,6 @@ class AuthRepository(
         }
         tokenStore.clearAll()
         tokenStore.clearWorkspaceEditorSession()
+        tokenStore.clearFileListCache()
     }
 }

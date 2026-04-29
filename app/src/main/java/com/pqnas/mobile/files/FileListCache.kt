@@ -39,7 +39,10 @@ class FileListCache(
 
             val raw = file.readText()
             val jsonText = EncryptedAuthValue.decryptOrLegacy(raw)
-            if (jsonText.isBlank()) return@runCatching null
+            if (jsonText.isBlank()) {
+                runCatching { file.delete() }
+                return@runCatching null
+            }
 
             val root = JSONObject(jsonText)
 
@@ -133,6 +136,8 @@ class FileListCache(
                             JSONObject(jsonText)
                             file.writeText(EncryptedAuthValue.encrypt(jsonText))
                         }
+                    } else {
+                        runCatching { file.delete() }
                     }
                     continue
                 }
