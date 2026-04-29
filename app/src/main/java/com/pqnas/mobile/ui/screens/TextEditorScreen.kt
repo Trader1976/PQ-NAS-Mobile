@@ -53,22 +53,21 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import android.graphics.Typeface
+import android.graphics.Rect
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.text.method.KeyListener
 import android.util.TypedValue
-import android.view.GestureDetector
 import android.view.Gravity
-import android.view.MotionEvent
+import android.view.KeyEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
-import android.widget.OverScroller
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import android.text.method.ScrollingMovementMethod
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
@@ -99,6 +98,7 @@ fun TextEditorScreen(
 
     var editorValue by remember(relPath) { mutableStateOf(TextFieldValue("")) }
     var originalText by remember(relPath) { mutableStateOf("") }
+    var editorDirty by remember(relPath) { mutableStateOf(false) }
     var encoding by remember(relPath) { mutableStateOf("utf-8") }
     var mtimeEpoch by remember(relPath) { mutableStateOf<Long?>(null) }
     var sha256 by remember(relPath) { mutableStateOf<String?>(null) }
@@ -114,9 +114,15 @@ fun TextEditorScreen(
     var showDiscardDialog by remember(relPath) { mutableStateOf(false) }
     var showReloadDialog by remember(relPath) { mutableStateOf(false) }
     var readOnly by remember(relPath) { mutableStateOf(false) }
+    var editMode by remember(relPath) { mutableStateOf(false) }
     var leaseHeartbeatJob by remember(relPath) { mutableStateOf<Job?>(null) }
 
-    val editorBridge = remember(relPath) { object { var suppressCallbacks = false } }
+    val editorBridge = remember(relPath) {
+        object {
+            var suppressCallbacks = false
+            var latestText = ""
+        }
+    }
     val editorPaddingPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     val surfaceColor = MaterialTheme.colorScheme.surface.toArgb()
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface.toArgb()
@@ -124,8 +130,11 @@ fun TextEditorScreen(
     var editorScrollY by remember(relPath) { mutableIntStateOf(0) }
     var editorScrollRange by remember(relPath) { mutableIntStateOf(0) }
     var editorViewportHeightPx by remember(relPath) { mutableIntStateOf(0) }
+    var editorHasFocus by remember(relPath) { mutableStateOf(false) }
+    var editorViewRef by remember(relPath) { mutableStateOf<ScrollAwareEditText?>(null) }
+    var editorSelectionStart by remember(relPath) { mutableIntStateOf(0) }
 
-    val dirty = editorValue.text != originalText
+    val dirty = editorDirty
     val matches = remember(editorValue.text, findQuery, matchCase) {
         findMatches(
             fullText = editorValue.text,
@@ -133,13 +142,46 @@ fun TextEditorScreen(
             matchCase = matchCase
         )
     }
-    val findStatus = remember(matches, findQuery, editorValue.selection) {
+    val findStatus = remember(matches, findQuery, editorSelectionStart) {
         computeFindStatus(
             matches = matches,
             query = findQuery,
-            selectedStart = editorValue.selection.start
+            selectedStart = editorSelectionStart
         )
     }
+
+    val editorByteCount = remember(editorValue.text) {
+        editorValue.text.toByteArray(Charsets.UTF_8).size.toLong()
+    }
+    fun currentEditorText(): String {
+        return editorBridge.latestText
+    }
+
+    fun enterEditMode() {
+        if (loading || saving || readOnly) return
+
+        editMode = true
+
+        editorViewRef?.post {
+            val view = editorViewRef ?: return@post
+            view.requestFocus()
+            view.isCursorVisible = true
+
+            val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    fun exitEditMode() {
+        editMode = false
+
+        val view = editorViewRef
+        view?.clearFocus()
+
+        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(view?.windowToken, 0)
+    }
+
     fun stopLeaseHeartbeat() {
         leaseHeartbeatJob?.cancel()
         leaseHeartbeatJob = null
@@ -189,6 +231,9 @@ fun TextEditorScreen(
             val text = resp.text ?: ""
             editorValue = TextFieldValue(text = text)
             originalText = text
+            editorBridge.latestText = text
+            editorDirty = false
+            editorSelectionStart = 0
             encoding = resp.encoding ?: "utf-8"
             mtimeEpoch = resp.mtime_epoch
             sha256 = resp.sha256
@@ -234,10 +279,12 @@ fun TextEditorScreen(
                     scopedOps.refreshEditLease(fileScope, relPath)
                 }
 
+                val textToSave = currentEditorText()
+
                 val resp = scopedOps.writeText(
                     scope = fileScope,
                     path = relPath,
-                    text = editorValue.text,
+                    text = textToSave,
                     expectedMtimeEpoch = mtimeEpoch,
                     expectedSha256 = sha256
                 )
@@ -246,10 +293,14 @@ fun TextEditorScreen(
                     throw IllegalStateException(composeApiMessage(resp.error, resp.message, "Write text failed"))
                 }
 
-                originalText = editorValue.text
+                originalText = textToSave
+                editorBridge.latestText = textToSave
+                editorValue = TextFieldValue(text = textToSave)
+                editorDirty = false
                 mtimeEpoch = resp.mtime_epoch ?: mtimeEpoch
                 sha256 = resp.sha256 ?: sha256
                 saving = false
+                editMode = false
                 status = "Saved."
                 onSaved()
             } catch (e: Exception) {
@@ -272,7 +323,7 @@ fun TextEditorScreen(
 
     fun jumpToMatch(start: Int) {
         if (findQuery.isBlank()) return
-        val end = (start + findQuery.length).coerceAtMost(editorValue.text.length)
+        val end = (start + findQuery.length).coerceAtMost(currentEditorText().length)
         editorValue = editorValue.copy(
             selection = TextRange(start, end)
         )
@@ -319,7 +370,11 @@ fun TextEditorScreen(
     }
 
     BackHandler {
-        requestClose()
+        if (editMode || editorHasFocus) {
+            exitEditMode()
+        } else {
+            requestClose()
+        }
     }
 
     LaunchedEffect(relPath) {
@@ -369,6 +424,15 @@ fun TextEditorScreen(
                         }
 
                         TextButton(
+                            onClick = {
+                                if (editMode) exitEditMode() else enterEditMode()
+                            },
+                            enabled = !loading && !saving && !readOnly
+                        ) {
+                            Text(if (editMode) "Done" else "Edit")
+                        }
+
+                        TextButton(
                             onClick = { saveFile() },
                             enabled = !loading && !saving && dirty
                         ) {
@@ -414,7 +478,7 @@ fun TextEditorScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Encoding: $encoding • ${formatBytes(editorValue.text.toByteArray(Charsets.UTF_8).size.toLong())}",
+                            text = "Encoding: $encoding • ${formatBytes(editorByteCount)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -533,20 +597,15 @@ fun TextEditorScreen(
                         modifier = Modifier.fillMaxSize(),
                         factory = { context ->
                             ScrollAwareEditText(context).apply {
-                                onSelectionChangedCallback = { selStart, selEnd ->
+                                editorViewRef = this
+                                onFocusChangedCallback = { focused ->
+                                    editorHasFocus = focused
+                                }
+
+                                onSelectionChangedCallback = { selStart, _ ->
                                     if (!editorBridge.suppressCallbacks) {
                                         val textLen = text?.length ?: 0
-                                        val safeStart = selStart.coerceIn(0, textLen)
-                                        val safeEnd = selEnd.coerceIn(0, textLen)
-
-                                        if (
-                                            editorValue.selection.start != safeStart ||
-                                            editorValue.selection.end != safeEnd
-                                        ) {
-                                            editorValue = editorValue.copy(
-                                                selection = TextRange(safeStart, safeEnd)
-                                            )
-                                        }
+                                        editorSelectionStart = selStart.coerceIn(0, textLen)
                                     }
                                 }
 
@@ -566,7 +625,7 @@ fun TextEditorScreen(
                                 isSingleLine = false
                                 maxLines = Int.MAX_VALUE
                                 setHorizontallyScrolling(false)
-                                movementMethod = ScrollingMovementMethod.getInstance()
+                                showSoftInputOnFocus = true
 
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
@@ -612,16 +671,14 @@ fun TextEditorScreen(
                                         if (editorBridge.suppressCallbacks) return
 
                                         val newText = s?.toString().orEmpty()
+                                        editorBridge.latestText = newText
                                         val selStart = selectionStart.coerceIn(0, newText.length)
-                                        val selEnd = selectionEnd.coerceIn(0, newText.length)
 
-                                        val newValue = editorValue.copy(
-                                            text = newText,
-                                            selection = TextRange(selStart, selEnd)
-                                        )
+                                        editorSelectionStart = selStart
 
-                                        if (newValue != editorValue) {
-                                            editorValue = newValue
+                                        val nowDirty = newText != originalText
+                                        if (editorDirty != nowDirty) {
+                                            editorDirty = nowDirty
                                         }
 
                                         post { publishScrollMetrics() }
@@ -630,6 +687,8 @@ fun TextEditorScreen(
                             }
                         },
                         update = { view ->
+                            editorViewRef = view as? ScrollAwareEditText
+
                             val targetText = editorValue.text
                             val start = editorValue.selection.start.coerceIn(0, targetText.length)
                             val end = editorValue.selection.end.coerceIn(0, targetText.length)
@@ -639,21 +698,31 @@ fun TextEditorScreen(
                             view.setHintTextColor(onSurfaceVariantColor)
 
                             val editableKeyListener = view.getTag() as? KeyListener
-                            val editableNow = !loading && !saving && !readOnly
+                            val editableNow = editMode && !loading && !saving && !readOnly
+                            val desiredKeyListener = if (editableNow) editableKeyListener else null
 
-                            view.keyListener = if (editableNow) editableKeyListener else null
-                            view.isFocusable = true
-                            view.isFocusableInTouchMode = true
+                            if (view.keyListener !== desiredKeyListener) {
+                                view.keyListener = desiredKeyListener
+                            }
+
+                            view.showSoftInputOnFocus = editableNow
+                            view.isFocusable = editableNow
+                            view.isFocusableInTouchMode = editableNow
                             view.isCursorVisible = editableNow
 
-                            if (view.text?.toString() != targetText) {
+                            // Do not push stale Compose text back into the native EditText
+                            // while there are unsaved native edits. Tapping Save/toolbar can
+                            // clear focus before saveFile() reads the current native text.
+                            if (!editorDirty && !view.hasFocus() && view.text?.toString() != targetText) {
                                 editorBridge.suppressCallbacks = true
                                 view.setText(targetText)
                                 view.setSelection(start, end)
+                                editorSelectionStart = start
                                 editorBridge.suppressCallbacks = false
-                            } else if (view.selectionStart != start || view.selectionEnd != end) {
+                            } else if (!editorDirty && !view.hasFocus() && (view.selectionStart != start || view.selectionEnd != end)) {
                                 editorBridge.suppressCallbacks = true
                                 view.setSelection(start, end)
+                                editorSelectionStart = start
                                 editorBridge.suppressCallbacks = false
                             }
 
@@ -684,6 +753,15 @@ fun TextEditorScreen(
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
+
+                    TextButton(
+                        onClick = {
+                            if (editMode) exitEditMode() else enterEditMode()
+                        },
+                        enabled = !loading && !saving && !readOnly
+                    ) {
+                        Text(if (editMode) "Done" else "Edit")
+                    }
 
                     TextButton(
                         onClick = { requestClose() },
@@ -766,63 +844,22 @@ private class ScrollAwareEditText(
 
     var onSelectionChangedCallback: ((Int, Int) -> Unit)? = null
     var onScrollMetricsChanged: ((scrollY: Int, scrollRange: Int) -> Unit)? = null
+    var onFocusChangedCallback: ((Boolean) -> Unit)? = null
 
-    private val flingScroller = OverScroller(context)
-
-    private val flingDetector = GestureDetector(
-        context,
-        object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent): Boolean {
-                if (!flingScroller.isFinished) {
-                    flingScroller.forceFinished(true)
-                }
-                return true
-            }
-
-            override fun onFling(
-                e1: MotionEvent?,
-                e2: MotionEvent,
-                velocityX: Float,
-                velocityY: Float
-            ): Boolean {
-                val range = maxVerticalScroll()
-                if (range <= 0) return false
-
-                flingScroller.fling(
-                    0,
-                    scrollY,
-                    0,
-                    (-velocityY).toInt(),
-                    0,
-                    0,
-                    0,
-                    range
-                )
-
-                postInvalidateOnAnimation()
-                return true
-            }
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+            clearFocus()
         }
-    )
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && !flingScroller.isFinished) {
-            flingScroller.forceFinished(true)
-        }
-
-        flingDetector.onTouchEvent(event)
-        return super.onTouchEvent(event)
+        return super.onKeyPreIme(keyCode, event)
     }
 
-    override fun computeScroll() {
-        if (flingScroller.computeScrollOffset()) {
-            val y = flingScroller.currY.coerceIn(0, maxVerticalScroll())
-            scrollTo(scrollX, y)
-            publishScrollMetrics()
-            postInvalidateOnAnimation()
-        } else {
-            super.computeScroll()
-        }
+    override fun onFocusChanged(
+        focused: Boolean,
+        direction: Int,
+        previouslyFocusedRect: Rect?
+    ) {
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+        onFocusChangedCallback?.invoke(focused)
     }
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
@@ -854,6 +891,8 @@ private class ScrollAwareEditText(
         onScrollMetricsChanged?.invoke(scrollY, maxVerticalScroll())
     }
 }
+
+
 private fun findMatches(
     fullText: String,
     query: String,
