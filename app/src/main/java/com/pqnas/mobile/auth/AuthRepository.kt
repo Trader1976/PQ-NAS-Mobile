@@ -27,14 +27,6 @@ class AuthRepository(
         val manufacturer = Build.MANUFACTURER ?: ""
         val model = Build.MODEL ?: ""
         val osVersion = "Android ${Build.VERSION.RELEASE ?: ""}".trim()
-
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "PQNAS_PAIR",
-                "pair metadata manufacturer='$manufacturer' model='$model' os='$osVersion'"
-            )
-        }
-
         val resp = api.consumePair(
             PairConsumeRequest(
                 pair_token = pairToken,
