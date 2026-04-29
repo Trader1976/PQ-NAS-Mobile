@@ -58,9 +58,12 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.text.method.KeyListener
 import android.util.TypedValue
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.EditText
+import android.widget.OverScroller
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
@@ -764,6 +767,64 @@ private class ScrollAwareEditText(
     var onSelectionChangedCallback: ((Int, Int) -> Unit)? = null
     var onScrollMetricsChanged: ((scrollY: Int, scrollRange: Int) -> Unit)? = null
 
+    private val flingScroller = OverScroller(context)
+
+    private val flingDetector = GestureDetector(
+        context,
+        object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean {
+                if (!flingScroller.isFinished) {
+                    flingScroller.forceFinished(true)
+                }
+                return true
+            }
+
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                val range = maxVerticalScroll()
+                if (range <= 0) return false
+
+                flingScroller.fling(
+                    0,
+                    scrollY,
+                    0,
+                    (-velocityY).toInt(),
+                    0,
+                    0,
+                    0,
+                    range
+                )
+
+                postInvalidateOnAnimation()
+                return true
+            }
+        }
+    )
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && !flingScroller.isFinished) {
+            flingScroller.forceFinished(true)
+        }
+
+        flingDetector.onTouchEvent(event)
+        return super.onTouchEvent(event)
+    }
+
+    override fun computeScroll() {
+        if (flingScroller.computeScrollOffset()) {
+            val y = flingScroller.currY.coerceIn(0, maxVerticalScroll())
+            scrollTo(scrollX, y)
+            publishScrollMetrics()
+            postInvalidateOnAnimation()
+        } else {
+            super.computeScroll()
+        }
+    }
+
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
         onSelectionChangedCallback?.invoke(selStart, selEnd)
@@ -785,9 +846,12 @@ private class ScrollAwareEditText(
         publishScrollMetrics()
     }
 
+    private fun maxVerticalScroll(): Int {
+        return (computeVerticalScrollRange() - height).coerceAtLeast(0)
+    }
+
     fun publishScrollMetrics() {
-        val range = (computeVerticalScrollRange() - height).coerceAtLeast(0)
-        onScrollMetricsChanged?.invoke(scrollY, range)
+        onScrollMetricsChanged?.invoke(scrollY, maxVerticalScroll())
     }
 }
 private fun findMatches(
