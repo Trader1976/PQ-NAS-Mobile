@@ -13,6 +13,7 @@ import okhttp3.Response
 import okhttp3.Route
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
+import java.util.concurrent.TimeUnit
 import retrofit2.converter.moshi.MoshiConverterFactory
 
 object ApiFactory {
@@ -25,6 +26,10 @@ object ApiFactory {
         tlsPinSha256: String
     ): AuthApi {
         val clientBuilder = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.MINUTES)
+            .writeTimeout(30, TimeUnit.MINUTES)
+            .callTimeout(0, TimeUnit.MILLISECONDS)
 
         PinnedTls.applyTo(clientBuilder, tlsPinSha256)
 
@@ -140,6 +145,10 @@ object ApiFactory {
         }
 
         val clientBuilder = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.MINUTES)
+            .writeTimeout(30, TimeUnit.MINUTES)
+            .callTimeout(0, TimeUnit.MILLISECONDS)
             .addInterceptor(authInterceptor)
             .authenticator(tokenAuthenticator)
 

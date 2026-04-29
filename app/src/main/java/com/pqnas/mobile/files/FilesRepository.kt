@@ -173,6 +173,7 @@ class FilesRepository(
 
         val totalBytes = file.length()
         var uploadId = ""
+        var finishStarted = false
 
         try {
             val start = api.startChunkedUpload(
@@ -225,6 +226,11 @@ class FilesRepository(
                 throw CancellationException("Upload cancelled")
             }
 
+            // All bytes are uploaded now. The server may still need time to
+            // assemble/move/index the final file, especially for multi-GB videos.
+            onProgress(totalBytes, totalBytes)
+            finishStarted = true
+
             api.finishChunkedUpload(
                 ChunkedUploadFinishRequest(upload_id = uploadId)
             )
@@ -232,7 +238,7 @@ class FilesRepository(
             uploadId = ""
             onProgress(totalBytes, totalBytes)
         } catch (e: Exception) {
-            if (uploadId.isNotBlank()) {
+            if (uploadId.isNotBlank() && !finishStarted) {
                 runCatching {
                     api.cancelChunkedUpload(
                         ChunkedUploadCancelRequest(upload_id = uploadId)

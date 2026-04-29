@@ -812,8 +812,16 @@ fun FilesScreen(
                     ) {
                         Text(
                             text = uploadFileName?.let {
-                                if (uploadBytesTotal <= 0L) "Preparing $it..." else "Uploading $it"
-                            } ?: if (uploadBytesTotal <= 0L) "Preparing upload..." else "Uploading...",
+                                when {
+                                    uploadBytesTotal <= 0L -> "Preparing $it..."
+                                    uploadBytesSent >= uploadBytesTotal -> "Finalizing $it..."
+                                    else -> "Uploading $it"
+                                }
+                            } ?: when {
+                                uploadBytesTotal <= 0L -> "Preparing upload..."
+                                uploadBytesSent >= uploadBytesTotal -> "Finalizing upload..."
+                                else -> "Uploading..."
+                            },
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -833,6 +841,8 @@ fun FilesScreen(
                         Text(
                             text = if (uploadBytesTotal <= 0L) {
                                 "Gathering file... please wait"
+                            } else if (uploadBytesSent >= uploadBytesTotal) {
+                                "Processing on server... please wait"
                             } else {
                                 "${((uploadBytesSent * 100) / uploadBytesTotal).coerceIn(0, 100)}% • ${
                                     formatBytes(uploadBytesSent)
