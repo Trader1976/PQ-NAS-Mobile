@@ -2,6 +2,7 @@ package com.pqnas.mobile.files
 
 import android.content.Context
 import com.pqnas.mobile.api.FileItemDto
+import com.pqnas.mobile.auth.EncryptedAuthValue
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -19,6 +20,10 @@ class FileListCache(
     private val appContext = context.applicationContext
     private val cacheDir = File(appContext.filesDir, "file_list_cache")
 
+    init {
+        migrateLegacyPlaintextCacheFiles()
+    }
+
     fun load(
         namespace: String,
         scope: FileScope,
@@ -28,7 +33,11 @@ class FileListCache(
             val file = fileFor(namespace, scope, path)
             if (!file.isFile) return@runCatching null
 
-            val root = JSONObject(file.readText())
+            val raw = file.readText()
+            val jsonText = EncryptedAuthValue.decryptOrLegacy(raw)
+            if (jsonText.isBlank()) return@runCatching null
+
+            val root = JSONObject(jsonText)
             val arr = root.optJSONArray("items") ?: JSONArray()
 
             val cachedItems = buildList {
@@ -85,7 +94,33 @@ class FileListCache(
                 .put("savedAtEpochMs", System.currentTimeMillis())
                 .put("items", arr)
 
-            fileFor(namespace, scope, path).writeText(root.toString())
+            // Cache contains private filenames/metadata, so keep it encrypted at rest.
+            // decryptOrLegacy() above still allows old plaintext cache files to be read once.
+            fileFor(namespace, scope, path).writeText(
+                EncryptedAuthValue.encrypt(root.toString())
+            )
+        }
+    }
+
+    private fun migrateLegacyPlaintextCacheFiles() {
+        runCatching {
+            if (!cacheDir.isDirectory) return@runCatching
+
+            val files = cacheDir.listFiles { file ->
+                file.isFile && file.name.endsWith(".json")
+            } ?: return@runCatching
+
+            for (file in files) {
+                val raw = file.readText()
+                if (raw.isBlank()) continue
+                if (EncryptedAuthValue.isEncrypted(raw)) continue
+
+                // Only migrate valid legacy JSON cache files. Invalid/corrupt files are ignored.
+                runCatching {
+                    JSONObject(raw)
+                    file.writeText(EncryptedAuthValue.encrypt(raw))
+                }
+            }
         }
     }
 
