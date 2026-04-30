@@ -11,6 +11,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
 import java.io.File
 import kotlinx.coroutines.CancellationException
+import retrofit2.HttpException
 
 class FilesRepository(
     private val tokenStore: TokenStore,
@@ -38,7 +39,11 @@ class FilesRepository(
     }
 
     suspend fun list(path: String? = null) =
-        filesApi.listFiles(path)
+        try {
+            filesApi.listFiles(path)
+        } catch (e: HttpException) {
+            throwSafeApiError(e, "Load")
+        }
 
     fun baseUrlForDisplay(): String = baseUrlProvider()
 

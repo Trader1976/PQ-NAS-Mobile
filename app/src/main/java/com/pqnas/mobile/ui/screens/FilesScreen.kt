@@ -97,6 +97,7 @@ import com.pqnas.mobile.files.listWorkspaces
 import okhttp3.RequestBody.Companion.toRequestBody
 import com.pqnas.mobile.files.stageUriToTempFile
 import java.io.File
+import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2174,11 +2175,49 @@ private suspend fun copyText(context: Context, text: String): Boolean {
         false
     }
 }
+private fun readHttpErrorToken(error: Throwable): String {
+    val e = error as? HttpException ?: return ""
 
+    val raw = try {
+        e.response()?.errorBody()?.string().orEmpty()
+    } catch (_: Exception) {
+        ""
+    }
+
+    if (raw.isBlank()) return ""
+
+    val json = try {
+        JSONObject(raw)
+    } catch (_: Exception) {
+        return raw.lowercase(Locale.getDefault())
+    }
+
+    return listOf(
+        json.optString("error").orEmpty(),
+        json.optString("code").orEmpty(),
+        json.optString("message").orEmpty()
+    )
+        .joinToString(" ")
+        .lowercase(Locale.getDefault())
+}
 private fun friendlyHttpMessage(
     action: String,
     error: Throwable
 ): String {
+    val serverToken = readHttpErrorToken(error)
+    val lowMessage = error.message.orEmpty().lowercase(Locale.getDefault())
+
+    if (
+        serverToken.contains("storage_unallocated") ||
+        serverToken.contains("storage not allocated") ||
+        serverToken.contains("no file storage assigned") ||
+        lowMessage.contains("storage_unallocated") ||
+        lowMessage.contains("storage not allocated") ||
+        lowMessage.contains("no file storage assigned")
+    ) {
+        return "Storage not allocated yet. Your device is paired, but this account has no file storage assigned. Ask an administrator to allocate storage in DNA-Nexus Server → Admin → User profiles."
+    }
+
     val http = (error as? HttpException)?.code()
         ?: Regex("""\bHTTP\s+(\d{3})\b""")
             .find(error.message.orEmpty())
