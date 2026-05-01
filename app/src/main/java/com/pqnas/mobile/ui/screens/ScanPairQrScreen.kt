@@ -21,6 +21,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.pqnas.mobile.auth.PairQrParser
 import com.pqnas.mobile.auth.PairQrPayload
+import com.pqnas.mobile.ui.screens.PortraitCaptureActivity
 
 @Composable
 fun ScanPairQrScreen(
@@ -50,7 +51,11 @@ fun ScanPairQrScreen(
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
             setPrompt("Scan DNA-Nexus pairing QR")
             setBeepEnabled(true)
-            setOrientationLocked(false)
+
+            // DNA-Nexus: force scanner upright on devices where sensor-driven
+            // orientation opens the QR scanner sideways, e.g. Samsung S25.
+            setCaptureActivity(PortraitCaptureActivity::class.java)
+            setOrientationLocked(true)
         }
         launcher.launch(options)
     }
