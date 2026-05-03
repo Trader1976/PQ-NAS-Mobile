@@ -57,6 +57,13 @@ class FilesRepository(
     suspend fun getMyStorage() =
         filesApi.getMyStorage()
 
+    suspend fun isServerAppAvailable(id: String): Boolean {
+        return runCatching {
+            val r = filesApi.hasApp(id)
+            r.ok && r.available && r.mobile
+        }.getOrDefault(false)
+    }
+    
     suspend fun getFavorites() =
         filesApi.listFavorites()
 

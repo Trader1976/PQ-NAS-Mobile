@@ -57,6 +57,14 @@ data class ChunkedUploadCancelResponse(
     val removed_entries: Long = 0L
 )
 
+data class AppAvailabilityResponse(
+    val ok: Boolean = false,
+    val id: String = "",
+    val available: Boolean = false,
+    val mobile: Boolean = false,
+    val error: String? = null
+)
+
 interface FilesApi {
     @GET("/api/v4/files/list")
     suspend fun listFiles(
@@ -65,6 +73,11 @@ interface FilesApi {
 
     @GET("/api/v4/me/storage")
     suspend fun getMyStorage(): MeStorageResponse
+
+    @GET("/api/v4/apps/has")
+    suspend fun hasApp(
+        @Query("id") id: String
+    ): AppAvailabilityResponse
 
     @Streaming
     @GET("/api/v4/files/get")
