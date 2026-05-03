@@ -1148,15 +1148,6 @@ fun FilesScreen(
                     .padding(bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-            Button(
-                onClick = { showAboutDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("About DNA-Nexus Files")
-            }
-
-            Spacer(Modifier.height(10.dp))
-
                 Text(
                     text = "Settings & info",
                     style = MaterialTheme.typography.headlineSmall,
@@ -1167,6 +1158,13 @@ fun FilesScreen(
                     storage = myStorage,
                     storageStatus = storageStatus
                 )
+
+                Button(
+                    onClick = { showAboutDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("About DNA-Nexus Files")
+                }
 
                 Button(
                     onClick = {

@@ -63,7 +63,7 @@ class FilesRepository(
             r.ok && r.available && r.mobile
         }.getOrDefault(false)
     }
-    
+
     suspend fun getFavorites() =
         filesApi.listFavorites()
 
