@@ -146,6 +146,8 @@ fun FilesScreen(
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showSharesManager by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var dropZoneAvailable by remember { mutableStateOf(false) }
+    var dropZoneChecked by remember { mutableStateOf(false) }
 
     var infoItem by remember { mutableStateOf<FileItemDto?>(null) }
     var versionsItem by remember { mutableStateOf<FileItemDto?>(null) }
@@ -804,6 +806,13 @@ fun FilesScreen(
         startupEmptyStateGrace = false
     }
 
+    LaunchedEffect(showSettingsSheet) {
+        if (showSettingsSheet && !dropZoneChecked) {
+            dropZoneAvailable = filesRepository.isServerAppAvailable("dropzone")
+            dropZoneChecked = true
+        }
+    }
+
     LaunchedEffect(Unit) {
         refreshWorkspaces()
         load(null)
@@ -1159,6 +1168,17 @@ fun FilesScreen(
                     storageStatus = storageStatus
                 )
 
+                if (dropZoneAvailable) {
+                    Button(
+                        onClick = {
+                            // TODO: open native Drop Zone screen once implemented
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Drop Zone")
+                    }
+                }
+                
                 Button(
                     onClick = { showAboutDialog = true },
                     modifier = Modifier.fillMaxWidth()
