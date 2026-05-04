@@ -64,7 +64,60 @@ data class AppAvailabilityResponse(
     val mobile: Boolean = false,
     val error: String? = null
 )
+data class DropZoneInfo(
+    val id: String = "",
+    val name: String = "",
+    val destination_path: String = "",
+    val created_epoch: Long = 0L,
+    val expires_epoch: Long = 0L,
+    val last_used_epoch: Long = 0L,
+    val max_file_bytes: Long = 0L,
+    val max_total_bytes: Long = 0L,
+    val bytes_uploaded: Long = 0L,
+    val upload_count: Long = 0L,
+    val password_required: Boolean = false,
+    val disabled: Boolean = false
+)
 
+data class DropZonesListResponse(
+    val ok: Boolean = false,
+    val drop_zones: List<DropZoneInfo> = emptyList(),
+    val error: String? = null,
+    val message: String? = null
+)
+
+data class DropZoneCreateRequest(
+    val name: String = "Drop Zone",
+    val destination_path: String = "",
+    val password: String = "",
+    val expires_in_seconds: Long = 7L * 24L * 60L * 60L,
+    val max_file_bytes: Long = 0L,
+    val max_total_bytes: Long = 0L
+)
+
+data class DropZoneCreateResponse(
+    val ok: Boolean = false,
+    val id: String = "",
+    val url: String = "",
+    val full_url: String = "",
+    val expires_epoch: Long = 0L,
+    val destination_path: String = "",
+    val error: String? = null,
+    val message: String? = null
+)
+
+data class DropZoneDisableRequest(
+    val id: String,
+    val disabled: Boolean = true
+)
+
+data class DropZoneDisableResponse(
+    val ok: Boolean = false,
+    val id: String = "",
+    val disabled: Boolean = false,
+    val error: String? = null,
+    val message: String? = null
+)
 interface FilesApi {
     @GET("/api/v4/files/list")
     suspend fun listFiles(
@@ -73,6 +126,20 @@ interface FilesApi {
 
     @GET("/api/v4/me/storage")
     suspend fun getMyStorage(): MeStorageResponse
+    @GET("/api/v4/dropzones/list")
+    suspend fun listDropZones(): DropZonesListResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/dropzones/create")
+    suspend fun createDropZone(
+        @Body request: DropZoneCreateRequest
+    ): DropZoneCreateResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/dropzones/disable")
+    suspend fun disableDropZone(
+        @Body request: DropZoneDisableRequest
+    ): DropZoneDisableResponse
 
     @GET("/api/v4/apps/has")
     suspend fun hasApp(

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -63,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -72,6 +75,8 @@ import com.pqnas.mobile.api.FileItemDto
 import com.pqnas.mobile.R
 import com.pqnas.mobile.BuildConfig
 import com.pqnas.mobile.api.MeStorageResponse
+import com.pqnas.mobile.api.DropZoneInfo
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.pqnas.mobile.files.FileTypeIcons
 import com.pqnas.mobile.files.FilesRepository
 import com.pqnas.mobile.files.SvgIconLoader
@@ -148,6 +153,16 @@ fun FilesScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var dropZoneAvailable by remember { mutableStateOf(false) }
     var dropZoneChecked by remember { mutableStateOf(false) }
+    var showDropZoneSheet by remember { mutableStateOf(false) }
+    var dropZones by remember { mutableStateOf<List<DropZoneInfo>>(emptyList()) }
+    var dropZoneLoading by remember { mutableStateOf(false) }
+    var dropZoneCreating by remember { mutableStateOf(false) }
+    var dropZoneStatus by remember { mutableStateOf("") }
+    var dropZoneLatestUrl by remember { mutableStateOf("") }
+
+    var dropZoneName by remember { mutableStateOf("Drop Zone") }
+    var dropZoneDestination by remember { mutableStateOf("") }
+    var dropZonePassword by remember { mutableStateOf("") }
 
     var infoItem by remember { mutableStateOf<FileItemDto?>(null) }
     var versionsItem by remember { mutableStateOf<FileItemDto?>(null) }
@@ -813,6 +828,88 @@ fun FilesScreen(
         }
     }
 
+    fun refreshDropZones() {
+        scope.launch {
+            dropZoneLoading = true
+            dropZoneStatus = ""
+
+            runCatching {
+                filesRepository.listDropZones()
+            }.onSuccess { r ->
+                if (r.ok) {
+                    dropZones = r.drop_zones
+                    if (dropZones.isEmpty()) {
+                        dropZoneStatus = "No Drop Zones yet."
+                    }
+                } else {
+                    dropZoneStatus = r.message ?: r.error ?: "Could not load Drop Zones."
+                }
+            }.onFailure { e ->
+                dropZoneStatus = friendlyHttpMessage("Drop Zone", e)
+            }
+
+            dropZoneLoading = false
+        }
+    }
+
+    fun createDropZoneFromSheet() {
+        scope.launch{
+            dropZoneCreating = true
+            dropZoneStatus = ""
+            dropZoneLatestUrl = ""
+
+            runCatching {
+                filesRepository.createDropZone(
+                    name = dropZoneName,
+                    destinationPath = dropZoneDestination,
+                    password = dropZonePassword,
+                    expiresInSeconds = 7L * 24L * 60L * 60L
+                )
+            }.onSuccess { r ->
+                if (r.ok) {
+                    dropZoneLatestUrl = r.full_url.ifBlank { r.url }
+                    dropZoneStatus = "Drop Zone created. Link is ready to copy."
+                    refreshDropZones()
+                } else {
+                    dropZoneStatus = r.message ?: r.error ?: "Could not create Drop Zone."
+                }
+            }.onFailure { e ->
+                dropZoneStatus = friendlyHttpMessage("Create Drop Zone", e)
+            }
+
+            dropZoneCreating = false
+        }
+    }
+
+    fun disableDropZoneFromSheet(id: String) {
+        scope.launch {
+            dropZoneStatus = ""
+
+            runCatching {
+                filesRepository.disableDropZone(id, disabled = true)
+            }.onSuccess { r ->
+                if (r.ok) {
+                    dropZoneStatus = "Drop Zone disabled."
+                    refreshDropZones()
+                } else {
+                    dropZoneStatus = r.message ?: r.error ?: "Could not disable Drop Zone."
+                }
+            }.onFailure { e ->
+                dropZoneStatus = friendlyHttpMessage("Disable Drop Zone", e)
+            }
+        }
+    }
+
+    fun copyLatestDropZoneLink() {
+        if (dropZoneLatestUrl.isBlank()) return
+
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText("Drop Zone link", dropZoneLatestUrl)
+        )
+
+        dropZoneStatus = "Drop Zone link copied."
+    }
     LaunchedEffect(Unit) {
         refreshWorkspaces()
         load(null)
@@ -1171,14 +1268,16 @@ fun FilesScreen(
                 if (dropZoneAvailable) {
                     Button(
                         onClick = {
-                            // TODO: open native Drop Zone screen once implemented
+                            showSettingsSheet = false
+                            showDropZoneSheet = true
+                            refreshDropZones()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Drop Zone")
                     }
                 }
-                
+
                 Button(
                     onClick = { showAboutDialog = true },
                     modifier = Modifier.fillMaxWidth()
@@ -1233,7 +1332,26 @@ fun FilesScreen(
             }
         }
     }
-
+    if (showDropZoneSheet) {
+        DropZoneManagerSheet(
+            zones = dropZones,
+            loading = dropZoneLoading,
+            creating = dropZoneCreating,
+            status = dropZoneStatus,
+            latestUrl = dropZoneLatestUrl,
+            name = dropZoneName,
+            destination = dropZoneDestination,
+            password = dropZonePassword,
+            onNameChange = { dropZoneName = it },
+            onDestinationChange = { dropZoneDestination = it },
+            onPasswordChange = { dropZonePassword = it },
+            onRefresh = { refreshDropZones() },
+            onCreate = { createDropZoneFromSheet() },
+            onCopyLatest = { copyLatestDropZoneLink() },
+            onDisable = { id -> disableDropZoneFromSheet(id) },
+            onDismiss = { showDropZoneSheet = false }
+        )
+    }
     if (showCreateMenu) {
         ModalBottomSheet(
             onDismissRequest = { showCreateMenu = false }
@@ -1748,6 +1866,244 @@ private val SHARE_EXPIRY_OPTIONS = listOf(
     ShareExpiryOption("7 days", 7L * 86400L),
     ShareExpiryOption("Never", null)
 )
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DropZoneManagerSheet(
+    zones: List<DropZoneInfo>,
+    loading: Boolean,
+    creating: Boolean,
+    status: String,
+    latestUrl: String,
+    name: String,
+    destination: String,
+    password: String,
+    onNameChange: (String) -> Unit,
+    onDestinationChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onCreate: () -> Unit,
+    onCopyLatest: () -> Unit,
+    onDisable: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
+    val dzOrange = Color(0xFFFF9F1A)
+    val dzBg = Color(0xFF070A10)
+    val dzPanel = Color(0xFF15161D)
+    val dzPanelSoft = Color(0xFF1E2028)
+    val dzText = Color(0xFFF4F4F6)
+    val dzMuted = Color(0xFFB5B7C3)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = dzBg,
+        contentColor = dzText,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.82f)
+                .padding(horizontal = 24.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "DNA-NEXUS SERVER",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = dzOrange
+            )
+
+            Text(
+                text = "Drop Zone",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = dzText
+            )
+
+            Text(
+                text = "Secure one-way upload links for outsiders. They can upload files, but they cannot browse, download, rename, or delete anything.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = dzMuted
+            )
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = onNameChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Name") }
+            )
+
+            OutlinedTextField(
+                value = destination,
+                onValueChange = onDestinationChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Destination folder") },
+                placeholder = { Text("Incoming/Drop Zones/Drop Zone") }
+            )
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = onPasswordChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Password, optional") },
+                visualTransformation = PasswordVisualTransformation()
+            )
+
+            Button(
+                onClick = onCreate,
+                enabled = !creating,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = dzOrange,
+                    contentColor = Color.Black
+                )
+            ) {
+                Text(if (creating) "Creating..." else "Create Drop Zone")
+            }
+
+            if (latestUrl.isNotBlank()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = dzPanelSoft
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "New link",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Text(
+                            text = latestUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = dzMuted
+                        )
+
+                        Button(
+                            onClick = onCopyLatest,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Copy link")
+                        }
+                    }
+                }
+            }
+
+            if (status.isNotBlank()) {
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = dzMuted
+                )
+            }
+
+            HorizontalDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Existing Drop Zones",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                TextButton(
+                    onClick = onRefresh,
+                    enabled = !loading,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = dzOrange
+                    )
+                ) {
+                    Text(if (loading) "Loading..." else "Refresh")
+                }
+            }
+
+            Text(
+                text = "For security, existing public URLs are only shown immediately after creation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            zones.forEach { zone ->
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = zone.name.ifBlank { "Drop Zone" },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Text(
+                            text = zone.destination_path.ifBlank { "No destination" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Text(
+                            text = buildString {
+                                append(zone.upload_count)
+                                append(" uploads")
+                                if (zone.bytes_uploaded > 0L) {
+                                    append(" • ")
+                                    append(formatBytes(zone.bytes_uploaded))
+                                }
+                                if (zone.password_required) {
+                                    append(" • password")
+                                }
+                                if (zone.disabled) {
+                                    append(" • disabled")
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (!zone.disabled) {
+                            TextButton(
+                                onClick = { onDisable(zone.id) },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = dzOrange
+                                )
+                            ) {
+                                Text("Disable")
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!loading && zones.isEmpty()) {
+                Text(
+                    text = "No Drop Zones yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
 
 private fun defaultShareExpiryOption(): ShareExpiryOption {
     return SHARE_EXPIRY_OPTIONS.first { it.expiresSec == 86400L }

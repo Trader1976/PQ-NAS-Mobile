@@ -12,6 +12,8 @@ import okhttp3.ResponseBody
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
+import com.pqnas.mobile.api.DropZoneCreateRequest
+import com.pqnas.mobile.api.DropZoneDisableRequest
 
 class FilesRepository(
     private val tokenStore: TokenStore,
@@ -63,6 +65,36 @@ class FilesRepository(
             r.ok && r.available && r.mobile
         }.getOrDefault(false)
     }
+
+    suspend fun listDropZones() =
+        filesApi.listDropZones()
+
+    suspend fun createDropZone(
+        name: String = "Drop Zone",
+        destinationPath: String = "",
+        password: String = "",
+        expiresInSeconds: Long = 7L * 24L * 60L * 60L,
+        maxFileBytes: Long = 0L,
+        maxTotalBytes: Long = 0L
+    ) =
+        filesApi.createDropZone(
+            DropZoneCreateRequest(
+                name = name,
+                destination_path = destinationPath,
+                password = password,
+                expires_in_seconds = expiresInSeconds,
+                max_file_bytes = maxFileBytes,
+                max_total_bytes = maxTotalBytes
+            )
+        )
+
+    suspend fun disableDropZone(id: String, disabled: Boolean = true) =
+        filesApi.disableDropZone(
+            DropZoneDisableRequest(
+                id = id,
+                disabled = disabled
+            )
+        )
 
     suspend fun getFavorites() =
         filesApi.listFavorites()
