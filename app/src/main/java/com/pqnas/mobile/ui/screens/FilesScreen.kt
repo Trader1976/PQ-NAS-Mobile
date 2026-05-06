@@ -149,10 +149,12 @@ fun FilesScreen(
     var shareDialogExpiry by remember { mutableStateOf(defaultShareExpiryOption()) }
 
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showAppsSheet by remember { mutableStateOf(false) }
     var showSharesManager by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var dropZoneAvailable by remember { mutableStateOf(false) }
-    var dropZoneChecked by remember { mutableStateOf(false) }
+    var echoStackAvailable by remember { mutableStateOf(false) }
+    var appsChecked by remember { mutableStateOf(false) }
     var showDropZoneSheet by remember { mutableStateOf(false) }
     var dropZones by remember { mutableStateOf<List<DropZoneInfo>>(emptyList()) }
     var dropZoneLoading by remember { mutableStateOf(false) }
@@ -821,10 +823,11 @@ fun FilesScreen(
         startupEmptyStateGrace = false
     }
 
-    LaunchedEffect(showSettingsSheet) {
-        if (showSettingsSheet && !dropZoneChecked) {
+    LaunchedEffect(showAppsSheet) {
+        if (showAppsSheet && !appsChecked) {
             dropZoneAvailable = filesRepository.isServerAppAvailable("dropzone")
-            dropZoneChecked = true
+            echoStackAvailable = filesRepository.isServerAppAvailable("echostack")
+            appsChecked = true
         }
     }
 
@@ -949,6 +952,15 @@ fun FilesScreen(
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f)
                 )
+
+                IconButton(
+                    onClick = { showAppsSheet = true }
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_apps_24),
+                        contentDescription = "Apps"
+                    )
+                }
 
                 IconButton(
                     onClick = { showSettingsSheet = true }
@@ -1265,18 +1277,6 @@ fun FilesScreen(
                     storageStatus = storageStatus
                 )
 
-                if (dropZoneAvailable) {
-                    Button(
-                        onClick = {
-                            showSettingsSheet = false
-                            showDropZoneSheet = true
-                            refreshDropZones()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Drop Zone")
-                    }
-                }
 
                 Button(
                     onClick = { showAboutDialog = true },
@@ -1332,6 +1332,112 @@ fun FilesScreen(
             }
         }
     }
+        if (showAppsSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showAppsSheet = false }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 8.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Apps",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Text(
+                        text = "Available DNA-Nexus mobile tools on this server.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (echoStackAvailable) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showAppsSheet = false
+                                    status = "Echo Stack mobile screen is next."
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Echo Stack",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Text(
+                                    text = "Save bookmarks and archived web pages.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    if (dropZoneAvailable) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showAppsSheet = false
+                                    showDropZoneSheet = true
+                                    refreshDropZones()
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Drop Zone",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Text(
+                                    text = "Create secure upload links for outsiders.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    if (appsChecked && !echoStackAvailable && !dropZoneAvailable) {
+                        Text(
+                            text = "No mobile apps are available on this server yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    TextButton(
+                        onClick = { showAppsSheet = false },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Close")
+                    }
+                }
+            }
+        }
     if (showDropZoneSheet) {
         DropZoneManagerSheet(
             zones = dropZones,
