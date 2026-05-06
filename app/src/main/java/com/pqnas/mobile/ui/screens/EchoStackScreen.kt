@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -47,6 +49,7 @@ import com.pqnas.mobile.api.EchoStackItemDto
 import com.pqnas.mobile.echostack.EchoStackRepository
 import com.pqnas.mobile.echostack.echoStackFriendlyMessage
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -75,7 +78,15 @@ fun EchoStackScreen(
     var items by remember { mutableStateOf<List<EchoStackItemDto>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var newUrl by remember { mutableStateOf("") }
+    var newTitle by remember { mutableStateOf("") }
+    var newCollection by remember { mutableStateOf("") }
+    var newTags by remember { mutableStateOf("") }
+    var newNotes by remember { mutableStateOf("") }
+    var showAddMetadata by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Loading Echo Stack...") }
+    var workingStatusBase by remember { mutableStateOf<String?>(null) }
+    var workingDots by remember { mutableStateOf(0) }
+    var archivingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var loading by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<EchoStackItemDto?>(null) }
@@ -120,9 +131,20 @@ fun EchoStackScreen(
             status = "Saving Echo Stack item..."
 
             runCatching {
-                repository.createFromUrl(url)
+                repository.createFromUrl(
+                    rawUrl = url,
+                    title = newTitle,
+                    collection = newCollection,
+                    tags = newTags,
+                    notes = newNotes
+                )
             }.onSuccess { created ->
                 newUrl = ""
+                newTitle = ""
+                newCollection = ""
+                newTags = ""
+                newNotes = ""
+                showAddMetadata = false
                 items = listOf(created) + items
                 status = "Saved."
             }.onFailure { e ->
@@ -165,17 +187,23 @@ fun EchoStackScreen(
 
     fun archive(item: EchoStackItemDto) {
         scope.launch {
-            status = "Archiving page snapshot..."
+            archivingIds = archivingIds + item.id
+            workingStatusBase = "Archiving page snapshot"
+            status = ""
 
             runCatching {
                 repository.archive(item.id)
             }.onSuccess { updated ->
                 replaceItem(updated)
+                workingStatusBase = null
                 status = if (updated.archive_status == "archived") "Archived." else "Archive updated."
             }.onFailure { e ->
+                workingStatusBase = null
                 status = echoStackFriendlyMessage("Archive", e)
                 loadItems()
             }
+
+            archivingIds = archivingIds - item.id
         }
     }
 
@@ -195,6 +223,18 @@ fun EchoStackScreen(
         }
     }
 
+    LaunchedEffect(workingStatusBase) {
+        if (workingStatusBase == null) {
+            workingDots = 0
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            delay(360L)
+            workingDots = (workingDots + 1) % 4
+        }
+    }
+
     LaunchedEffect(Unit) {
         loadItems()
     }
@@ -207,6 +247,8 @@ fun EchoStackScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(EchoBg)
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(16.dp)
         ) {
             Row(
@@ -264,18 +306,61 @@ fun EchoStackScreen(
                         placeholder = "https://example.com/article"
                     )
 
-                    Button(
-                        onClick = { createItem() },
-                        enabled = !creating,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = EchoPanelSoft,
-                            contentColor = EchoText,
-                            disabledContainerColor = EchoPanelSoft.copy(alpha = 0.55f),
-                            disabledContentColor = EchoMuted
-                        )
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(if (creating) "Saving..." else "Save link")
+                        TextButton(
+                            onClick = { showAddMetadata = !showAddMetadata },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = EchoOrangeSoft
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if (showAddMetadata) "Hide metadata" else "Add metadata")
+                        }
+
+                        Button(
+                            onClick = { createItem() },
+                            enabled = !creating,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EchoPanelSoft,
+                                contentColor = EchoText,
+                                disabledContainerColor = EchoPanelSoft.copy(alpha = 0.55f),
+                                disabledContentColor = EchoMuted
+                            )
+                        ) {
+                            Text(if (creating) "Saving..." else "Save link")
+                        }
+                    }
+
+                    if (showAddMetadata) {
+                        EchoTextField(
+                            value = newTitle,
+                            onValueChange = { newTitle = it },
+                            label = "Optional title",
+                            placeholder = "Leave empty to use page title"
+                        )
+
+                        EchoTextField(
+                            value = newCollection,
+                            onValueChange = { newCollection = it },
+                            label = "Collection",
+                            placeholder = "NAS docs"
+                        )
+
+                        EchoTextField(
+                            value = newTags,
+                            onValueChange = { newTags = it },
+                            label = "Tags",
+                            placeholder = "nas, crypto, research"
+                        )
+
+                        EchoNotesField(
+                            value = newNotes,
+                            onValueChange = { newNotes = it }
+                        )
                     }
                 }
             }
@@ -321,20 +406,26 @@ fun EchoStackScreen(
 
             Spacer(Modifier.height(8.dp))
 
+            val visibleStatus = workingStatusBase?.let { base ->
+                base + ".".repeat(workingDots)
+            } ?: status
+
             Text(
-                text = status,
+                text = visibleStatus,
                 style = MaterialTheme.typography.bodyMedium,
                 color = when {
-                    status == "Ready." ||
-                            status == "Saved." ||
-                            status == "Updated." ||
-                            status == "Archived." ||
-                            status == "Deleted." ->
+                    workingStatusBase != null ->
+                        EchoOrangeSoft
+                    visibleStatus == "Ready." ||
+                            visibleStatus == "Saved." ||
+                            visibleStatus == "Updated." ||
+                            visibleStatus == "Archived." ||
+                            visibleStatus == "Deleted." ->
                         EchoGood
-                    status.contains("failed", ignoreCase = true) ||
-                            status.contains("denied", ignoreCase = true) ||
-                            status.contains("expired", ignoreCase = true) ||
-                            status.contains("quota", ignoreCase = true) ->
+                    visibleStatus.contains("failed", ignoreCase = true) ||
+                            visibleStatus.contains("denied", ignoreCase = true) ||
+                            visibleStatus.contains("expired", ignoreCase = true) ||
+                            visibleStatus.contains("quota", ignoreCase = true) ->
                         EchoBad
                     else -> EchoMuted
                 }
@@ -386,6 +477,8 @@ fun EchoStackScreen(
                     ) { item ->
                         EchoStackItemCard(
                             item = item,
+                            isArchiving = archivingIds.contains(item.id),
+                            archiveDots = workingDots,
                             onOpenUrl = {
                                 val url = item.final_url.ifBlank { item.url }
                                 if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -469,8 +562,41 @@ private fun EchoTextField(
 }
 
 @Composable
+private fun EchoNotesField(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(96.dp),
+        singleLine = false,
+        minLines = 3,
+        label = { Text("Notes") },
+        placeholder = { Text("Why this link matters, reminders, context...") },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = EchoText,
+            unfocusedTextColor = EchoText,
+            focusedContainerColor = EchoBg.copy(alpha = 0.35f),
+            unfocusedContainerColor = EchoBg.copy(alpha = 0.35f),
+            focusedBorderColor = EchoOrange,
+            unfocusedBorderColor = EchoPanelLine,
+            focusedLabelColor = EchoOrange,
+            unfocusedLabelColor = EchoMuted,
+            cursorColor = EchoOrange,
+            focusedPlaceholderColor = EchoMuted,
+            unfocusedPlaceholderColor = EchoMuted
+        )
+    )
+}
+
+@Composable
 private fun EchoStackItemCard(
     item: EchoStackItemDto,
+    isArchiving: Boolean,
+    archiveDots: Int,
     onOpenUrl: () -> Unit,
     onFavorite: () -> Unit,
     onReadToggle: () -> Unit,
@@ -478,6 +604,7 @@ private fun EchoStackItemCard(
     onDelete: () -> Unit
 ) {
     val archiveStatus = item.archive_status.ifBlank { "none" }
+    val archiveActive = isArchiving || archiveStatus == "archiving"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -528,7 +655,33 @@ private fun EchoStackItemCard(
                     color = EchoMuted
                 )
             }
+            if (item.collection.isNotBlank() || item.tags_text.isNotBlank()) {
+                Text(
+                    text = buildString {
+                        if (item.collection.isNotBlank()) {
+                            append("Collection: ")
+                            append(item.collection)
+                        }
+                        if (item.collection.isNotBlank() && item.tags_text.isNotBlank()) {
+                            append(" • ")
+                        }
+                        if (item.tags_text.isNotBlank()) {
+                            append("Tags: ")
+                            append(item.tags_text)
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = EchoOrangeSoft
+                )
+            }
 
+            if (item.notes.isNotBlank()) {
+                Text(
+                    text = item.notes,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = EchoMuted
+                )
+            }
             Text(
                 text = item.url,
                 style = MaterialTheme.typography.bodySmall,
@@ -539,7 +692,7 @@ private fun EchoStackItemCard(
                 text = buildString {
                     append(if (item.read_state == "read") "Read" else "Unread")
                     append(" • Archive: ")
-                    append(archiveStatus)
+                    append(if (archiveActive) "archiving" else archiveStatus)
                     if (item.archive_bytes > 0L) {
                         append(" • ")
                         append(formatEchoBytes(item.archive_bytes))
@@ -577,15 +730,17 @@ private fun EchoStackItemCard(
                     onClick = onReadToggle
                 )
 
-                EchoActionButton(
-                    text = when (archiveStatus) {
-                        "archived" -> "Archived"
-                        "failed" -> "Retry"
-                        "archiving" -> "Archiving..."
+                EchoArchiveActionButton(
+                    text = when {
+                        archiveActive -> "Archiving" + ".".repeat(archiveDots)
+                        archiveStatus == "archived" -> "Archived"
+                        archiveStatus == "failed" -> "Retry"
                         else -> "Archive"
                     },
+                    active = archiveActive,
+                    archived = archiveStatus == "archived" && !archiveActive,
                     onClick = onArchive,
-                    enabled = archiveStatus != "archiving"
+                    enabled = !archiveActive
                 )
 
                 TextButton(
@@ -619,7 +774,32 @@ private fun EchoActionButton(
         Text(text)
     }
 }
-
+@Composable
+private fun EchoArchiveActionButton(
+    text: String,
+    active: Boolean,
+    archived: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = when {
+                active -> EchoOrangeSoft
+                archived -> EchoGood
+                else -> EchoOrangeSoft
+            },
+            disabledContentColor = if (active) EchoOrangeSoft else EchoMuted
+        )
+    ) {
+        Text(
+            text = text,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
 private fun formatEchoTime(unixSeconds: Long): String {
     if (unixSeconds <= 0L) return ""
     val date = Date(unixSeconds * 1000L)

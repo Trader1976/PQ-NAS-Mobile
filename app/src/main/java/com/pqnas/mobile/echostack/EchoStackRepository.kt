@@ -26,22 +26,34 @@ class EchoStackRepository(
         return response.items
     }
 
-    suspend fun createFromUrl(rawUrl: String): EchoStackItemDto {
+    suspend fun createFromUrl(
+        rawUrl: String,
+        title: String = "",
+        collection: String = "",
+        tags: String = "",
+        notes: String = ""
+    ): EchoStackItemDto {
         val url = normalizeUrl(rawUrl)
 
         val preview = runCatching {
             api.preview(EchoStackPreviewRequest(url = url))
         }.getOrNull()
 
+        val cleanTitle = title.trim()
         val response = api.createItem(
             EchoStackCreateRequest(
                 url = url,
                 final_url = preview?.final_url.orEmpty(),
-                title = preview?.title?.takeIf { it.isNotBlank() } ?: url,
+                title = cleanTitle.ifBlank {
+                    preview?.title?.takeIf { it.isNotBlank() } ?: url
+                },
                 description = preview?.description.orEmpty(),
                 site_name = preview?.site_name.orEmpty(),
                 favicon_url = preview?.favicon_url.orEmpty(),
                 preview_image_url = preview?.preview_image_url.orEmpty(),
+                tags_text = tags.trim(),
+                collection = collection.trim(),
+                notes = notes.trim(),
                 read_state = "unread"
             )
         )
