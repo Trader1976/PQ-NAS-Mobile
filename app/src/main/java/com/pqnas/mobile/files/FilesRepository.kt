@@ -33,6 +33,13 @@ class FilesRepository(
         )
     }
 
+    private val echoStackApi by lazy {
+        ApiFactory.createEchoStackApi(
+            baseUrl = baseUrlProvider(),
+            tokenStore = tokenStore
+        )
+    }
+
     private val authedOkHttpClient by lazy {
         ApiFactory.createAuthedOkHttpClient(
             baseUrl = baseUrlProvider(),
@@ -54,6 +61,9 @@ class FilesRepository(
 
     internal fun createWorkspaceFilesApiInternal() =
         workspaceFilesApi
+
+    internal fun createEchoStackApiInternal() =
+        echoStackApi
     internal fun createFilesApiInternal() =
         filesApi
     suspend fun getMyStorage() =

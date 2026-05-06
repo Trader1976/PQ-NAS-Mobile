@@ -59,6 +59,11 @@ object ApiFactory {
             .create(WorkspaceFilesApi::class.java)
     }
 
+    fun createEchoStackApi(baseUrl: String, tokenStore: TokenStore): EchoStackApi {
+        return createAuthedRetrofit(baseUrl, tokenStore)
+            .create(EchoStackApi::class.java)
+    }
+
     fun createAuthedOkHttpClient(baseUrl: String, tokenStore: TokenStore): OkHttpClient {
         val initialState = runBlocking { tokenStore.getAuthStateOnce() }
 

@@ -103,6 +103,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import com.pqnas.mobile.files.stageUriToTempFile
 import java.io.File
 import org.json.JSONObject
+import com.pqnas.mobile.echostack.EchoStackRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,6 +162,7 @@ fun FilesScreen(
     var dropZoneCreating by remember { mutableStateOf(false) }
     var dropZoneStatus by remember { mutableStateOf("") }
     var dropZoneLatestUrl by remember { mutableStateOf("") }
+    var showEchoStackScreen by remember { mutableStateOf(false) }
 
     var dropZoneName by remember { mutableStateOf("Drop Zone") }
     var dropZoneDestination by remember { mutableStateOf("") }
@@ -824,7 +826,7 @@ fun FilesScreen(
     }
 
     LaunchedEffect(showAppsSheet) {
-        if (showAppsSheet && !appsChecked) {
+        if (showAppsSheet) {
             dropZoneAvailable = filesRepository.isServerAppAvailable("dropzone")
             echoStackAvailable = filesRepository.isServerAppAvailable("echostack")
             appsChecked = true
@@ -1362,7 +1364,7 @@ fun FilesScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     showAppsSheet = false
-                                    status = "Echo Stack mobile screen is next."
+                                    showEchoStackScreen = true
                                 },
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -1939,6 +1941,18 @@ fun FilesScreen(
                 onClose = {
                     showSharesManager = false
                     refreshCurrent()
+                }
+            )
+        }
+        if (showEchoStackScreen) {
+            val echoStackRepository = remember(filesRepository) {
+                EchoStackRepository(filesRepository.createEchoStackApiInternal())
+            }
+
+            EchoStackScreen(
+                repository = echoStackRepository,
+                onClose = {
+                    showEchoStackScreen = false
                 }
             )
         }
