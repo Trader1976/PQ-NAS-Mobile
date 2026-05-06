@@ -1223,11 +1223,15 @@ fun FilesScreen(
                                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                             )
                         }
+
+                        item {
+                            Spacer(Modifier.height(104.dp))
+                        }
                     }
                 }
             }
         }
-    }
+        }
 
     if (showAboutDialog) {
         AlertDialog(
