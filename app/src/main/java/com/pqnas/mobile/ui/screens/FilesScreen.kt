@@ -1444,26 +1444,26 @@ fun FilesScreen(
                 }
             }
         }
-    if (showDropZoneSheet) {
-        DropZoneManagerSheet(
-            zones = dropZones,
-            loading = dropZoneLoading,
-            creating = dropZoneCreating,
-            status = dropZoneStatus,
-            latestUrl = dropZoneLatestUrl,
-            name = dropZoneName,
-            destination = dropZoneDestination,
-            password = dropZonePassword,
-            onNameChange = { dropZoneName = it },
-            onDestinationChange = { dropZoneDestination = it },
-            onPasswordChange = { dropZonePassword = it },
-            onRefresh = { refreshDropZones() },
-            onCreate = { createDropZoneFromSheet() },
-            onCopyLatest = { copyLatestDropZoneLink() },
-            onDisable = { id -> disableDropZoneFromSheet(id) },
-            onDismiss = { showDropZoneSheet = false }
-        )
-    }
+        if (showDropZoneSheet) {
+            DropZoneScreen(
+                zones = dropZones,
+                loading = dropZoneLoading,
+                creating = dropZoneCreating,
+                status = dropZoneStatus,
+                latestUrl = dropZoneLatestUrl,
+                name = dropZoneName,
+                destination = dropZoneDestination,
+                password = dropZonePassword,
+                onNameChange = { dropZoneName = it },
+                onDestinationChange = { dropZoneDestination = it },
+                onPasswordChange = { dropZonePassword = it },
+                onRefresh = { refreshDropZones() },
+                onCreate = { createDropZoneFromSheet() },
+                onCopyLatest = { copyLatestDropZoneLink() },
+                onDisable = { id -> disableDropZoneFromSheet(id) },
+                onClose = { showDropZoneSheet = false }
+            )
+        }
     if (showCreateMenu) {
         ModalBottomSheet(
             onDismissRequest = { showCreateMenu = false }
