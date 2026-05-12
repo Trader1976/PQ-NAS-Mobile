@@ -234,6 +234,22 @@ fun FilesScreen(
             .joinToString("/")
     }
 
+    fun isInternalPqnasFolder(item: FileItemDto): Boolean {
+        if (item.type != "dir") return false
+
+        val n = item.name.trim().lowercase(Locale.getDefault())
+
+        return n == ".pqnas_activity" ||
+                n == ".pqnas_echostack" ||
+                n == ".pqnas-echostack" ||
+                n == ".pqnas" ||
+                n.startsWith(".pqnas_") ||
+                n.startsWith(".pqnas-")
+    }
+
+    fun visibleFileItems(source: List<FileItemDto>): List<FileItemDto> =
+        source.filterNot { isInternalPqnasFolder(it) }
+
     fun itemFullPath(item: FileItemDto): String {
         return normalizeRelPath(buildItemPath(currentPath, item.name))
     }
@@ -274,10 +290,12 @@ fun FilesScreen(
 
         if (cached != null) {
             currentPath = cached.path
+            val cachedVisibleItems = visibleFileItems(cached.items)
+
             items = if (favoritesOnly) {
-                cached.items.filter { it.isFavorite }
+                cachedVisibleItems.filter { it.isFavorite }
             } else {
-                cached.items
+                cachedVisibleItems
             }
             listLoading = false
             startupEmptyStateGrace = false
@@ -293,7 +311,7 @@ fun FilesScreen(
 
                 if (requestGeneration != loadGeneration) return@launch
 
-                val baseItems = resp.items
+                val baseItems = visibleFileItems(resp.items)
                     .sortedWith(
                         compareBy<FileItemDto> { it.type != "dir" }
                             .thenBy { it.name.lowercase(Locale.getDefault()) }
@@ -677,7 +695,7 @@ fun FilesScreen(
             try {
                 val resp = scopedOps.list(currentScope, pathArg)
 
-                moveCopyPickerFolders = resp.items
+                moveCopyPickerFolders = visibleFileItems(resp.items)
                     .filter { it.type == "dir" }
                     .sortedBy { it.name.lowercase(Locale.getDefault()) }
 
