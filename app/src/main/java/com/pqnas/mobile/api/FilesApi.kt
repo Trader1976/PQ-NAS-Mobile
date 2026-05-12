@@ -118,11 +118,46 @@ data class DropZoneDisableResponse(
     val error: String? = null,
     val message: String? = null
 )
+
+data class FileLockStatusBatchRequest(
+    val scope_type: String,
+    val scope_id: String = "",
+    val paths: List<String> = emptyList()
+)
+
+data class FileLockInfoDto(
+    val scope_type: String = "",
+    val scope_id: String = "",
+    val logical_rel_path: String = "",
+    val item_kind: String = "",
+    val locked_by_fp_short: String? = null,
+    val locked_by_label: String? = null,
+    val own_lock: Boolean = false,
+    val can_unlock: Boolean = false,
+    val note: String? = null,
+    val created_at_epoch: Long = 0L,
+    val updated_at_epoch: Long = 0L,
+    val expires_at_epoch: Long = 0L
+)
+
+data class FileLockStatusBatchResponse(
+    val ok: Boolean = false,
+    val locks: Map<String, FileLockInfoDto> = emptyMap(),
+    val error: String? = null,
+    val message: String? = null
+)
+
 interface FilesApi {
     @GET("/api/v4/files/list")
     suspend fun listFiles(
         @Query("path") path: String? = null
     ): FilesListResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/file-locks/status-batch")
+    suspend fun fileLockStatusBatch(
+        @Body request: FileLockStatusBatchRequest
+    ): FileLockStatusBatchResponse
 
     @GET("/api/v4/me/storage")
     suspend fun getMyStorage(): MeStorageResponse

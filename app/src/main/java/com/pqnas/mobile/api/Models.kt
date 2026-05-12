@@ -21,8 +21,32 @@ data class FileItemDto(
     val size_bytes: Long? = null,
     val mtime_unix: Long? = null,
     val isFavorite: Boolean = false,
-    val isShared: Boolean = false
-)
+    val isShared: Boolean = false,
+
+    // DNA-Nexus file lock metadata from server list responses.
+    val is_locked: Boolean = false,
+    val locked: Boolean = false,
+    val lock_note: String? = null,
+    val locked_by_fp: String? = null,
+    val locked_by_display: String? = null,
+    val lock_expires_at_epoch: Long? = null
+) {
+    val isLocked: Boolean
+        get() = is_locked || locked
+
+    val lockSubtitle: String
+        get() {
+            val who = locked_by_display?.takeIf { it.isNotBlank() }
+            val note = lock_note?.takeIf { it.isNotBlank() }
+
+            return when {
+                who != null && note != null -> "Locked by $who — $note"
+                who != null -> "Locked by $who"
+                note != null -> "Locked — $note"
+                else -> "Locked"
+            }
+        }
+}
 
 data class FilesListResponse(
     val ok: Boolean,

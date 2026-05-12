@@ -14,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import com.pqnas.mobile.api.DropZoneCreateRequest
 import com.pqnas.mobile.api.DropZoneDisableRequest
+import com.pqnas.mobile.api.FileLockStatusBatchRequest
 
 class FilesRepository(
     private val tokenStore: TokenStore,
@@ -25,6 +26,27 @@ class FilesRepository(
             tokenStore = tokenStore
         )
     }
+
+    suspend fun getFileLockStatusBatch(
+        scope: FileScope,
+        paths: List<String>
+    ) = filesApi.fileLockStatusBatch(
+        FileLockStatusBatchRequest(
+            scope_type = when (scope) {
+                FileScope.User -> "user"
+                is FileScope.Workspace -> "workspace"
+            },
+            scope_id = when (scope) {
+                FileScope.User -> ""
+                is FileScope.Workspace -> scope.workspaceId
+            },
+            paths = paths
+                .map { it.replace("\\", "/").trim('/') }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(500)
+        )
+    )
 
     private val workspaceFilesApi by lazy {
         ApiFactory.createWorkspaceFilesApi(

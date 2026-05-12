@@ -68,7 +68,13 @@ class FileListCache(
                             size_bytes = nullableLong(o, "size_bytes"),
                             mtime_unix = nullableLong(o, "mtime_unix"),
                             isFavorite = o.optBoolean("isFavorite", false),
-                            isShared = o.optBoolean("isShared", false)
+                            isShared = o.optBoolean("isShared", false),
+                            is_locked = o.optBoolean("is_locked", o.optBoolean("locked", false)),
+                            locked = o.optBoolean("locked", false),
+                            lock_note = o.optString("lock_note", "").takeIf { it.isNotBlank() },
+                            locked_by_fp = o.optString("locked_by_fp", "").takeIf { it.isNotBlank() },
+                            locked_by_display = o.optString("locked_by_display", "").takeIf { it.isNotBlank() },
+                            lock_expires_at_epoch = nullableLong(o, "lock_expires_at_epoch")
                         )
                     )
                 }
@@ -101,6 +107,12 @@ class FileListCache(
                         .put("mtime_unix", item.mtime_unix)
                         .put("isFavorite", item.isFavorite)
                         .put("isShared", item.isShared)
+                        .put("is_locked", item.is_locked)
+                        .put("locked", item.locked)
+                        .put("lock_note", item.lock_note)
+                        .put("locked_by_fp", item.locked_by_fp)
+                        .put("locked_by_display", item.locked_by_display)
+                        .put("lock_expires_at_epoch", item.lock_expires_at_epoch)
                 )
             }
 

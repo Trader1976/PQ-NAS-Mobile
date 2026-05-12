@@ -104,6 +104,8 @@ import com.pqnas.mobile.files.stageUriToTempFile
 import java.io.File
 import org.json.JSONObject
 import com.pqnas.mobile.echostack.EchoStackRepository
+import androidx.compose.material.icons.filled.Lock
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -317,12 +319,23 @@ fun FilesScreen(
                     runCatching { scopedOps.getShares(scopeSnapshot) }.getOrNull()
                 }
 
+                val locksDeferred = async {
+                    val lockPaths = baseItems.map { item ->
+                        normalizeRelPath(buildItemPath(resp.path.ifBlank { null }, item.name))
+                    }
+
+                    runCatching {
+                        filesRepository.getFileLockStatusBatch(scopeSnapshot, lockPaths)
+                    }.getOrNull()
+                }
+
                 val storageDeferred = async {
                     runCatching { filesRepository.getMyStorage() }
                 }
 
                 val favs = favsDeferred.await()
                 val shares = sharesDeferred.await()
+                val lockResp = locksDeferred.await()
 
                 if (requestGeneration != loadGeneration) return@launch
 
@@ -333,16 +346,26 @@ fun FilesScreen(
                 val shareKeys = shares?.shares?.map {
                     shareKey(it.type, it.path)
                 }?.toSet() ?: emptySet()
-
+                val lockMap = lockResp?.locks ?: emptyMap()
                 val mergedItems = baseItems.map { item ->
-                    val fullItemPath = buildItemPath(resp.path.ifBlank { null }, item.name)
+                    val fullItemPath = normalizeRelPath(
+                        buildItemPath(resp.path.ifBlank { null }, item.name)
+                    )
+                    val lock = lockMap[fullItemPath]
+
                     item.copy(
                         isFavorite = favoriteKeys.contains(
                             favoriteKey(item.type, fullItemPath)
                         ),
                         isShared = shareKeys.contains(
                             shareKey(item.type, fullItemPath)
-                        )
+                        ),
+                        is_locked = lock != null,
+                        locked = lock != null,
+                        lock_note = lock?.note,
+                        locked_by_fp = lock?.locked_by_fp_short,
+                        locked_by_display = lock?.locked_by_label ?: lock?.locked_by_fp_short,
+                        lock_expires_at_epoch = lock?.expires_at_epoch
                     )
                 }
 
@@ -1208,11 +1231,23 @@ fun FilesScreen(
                                             }
                                         }
                                         "Rename" -> {
-                                            renameItem = clickedItem
-                                            renameText = clickedItem.name
+                                            if (clickedItem.isLocked) {
+                                                val msg = "${clickedItem.name} is locked. Unlock it before renaming."
+                                                status = msg
+                                                scope.launch { snackbarHostState.showSnackbar(msg) }
+                                            } else {
+                                                renameItem = clickedItem
+                                                renameText = clickedItem.name
+                                            }
                                         }
                                         "Delete" -> {
-                                            deleteItem = clickedItem
+                                            if (clickedItem.isLocked) {
+                                                val msg = "${clickedItem.name} is locked. Unlock it before deleting."
+                                                status = msg
+                                                scope.launch { snackbarHostState.showSnackbar(msg) }
+                                            } else {
+                                                deleteItem = clickedItem
+                                            }
                                         }
                                         else -> status = "$action not implemented yet: ${clickedItem.name}"
                                     }
@@ -1610,6 +1645,10 @@ fun FilesScreen(
                     Text("Type: ${if (item.type == "dir") "Directory" else "File"}")
                     Text("Favorite: ${if (item.isFavorite) "Yes" else "No"}")
                     Text("Shared: ${if (item.isShared) "Yes" else "No"}")
+                    Text("Locked: ${if (item.isLocked) "Yes" else "No"}")
+                    if (item.isLocked) {
+                        Text(item.lockSubtitle)
+                    }
                     Text("Size: ${if (item.type == "dir") "-" else formatBytes(item.size_bytes ?: 0)}")
                     Text(
                         "Modified: ${
@@ -1639,6 +1678,14 @@ fun FilesScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        if (item.isLocked) {
+                            val msg = "${item.name} is locked. Unlock it before renaming."
+                            renameItem = null
+                            renameText = ""
+                            status = msg
+                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                            return@TextButton
+                        }
                         val newName = renameText.trim()
                         if (newName.isBlank()) {
                             status = "Name cannot be empty"
@@ -2108,6 +2155,11 @@ private fun FileRow(
 ) {
     val isDir = item.type == "dir"
     var menuExpanded by remember { mutableStateOf(false) }
+    val rowBackground = if (item.isLocked) {
+        Color(0x66FFC107)
+    } else {
+        Color.Transparent
+    }
 
     val typeAndSize = if (isDir) {
         "Directory"
@@ -2120,6 +2172,7 @@ private fun FileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(rowBackground)
             .clickable(onClick = onOpen)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2129,12 +2182,26 @@ private fun FileRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = if (isDir) FontWeight.SemiBold else FontWeight.Normal
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = if (isDir || item.isLocked) FontWeight.SemiBold else FontWeight.Normal
+                )
+
+                if (item.isLocked) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Locked",
+                        modifier = Modifier.size(16.dp),
+                        tint = Color(0xFFFFC107)
+                    )
+                }
+            }
 
             Row(
                 verticalAlignment = Alignment.Top,
@@ -2186,9 +2253,18 @@ private fun FileRow(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    if (item.isLocked) {
+                        Text(
+                            text = item.lockSubtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFFFC107),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
 
                 Row(
+
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
@@ -2484,7 +2560,15 @@ private fun friendlyHttpMessage(
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
-
+    if (
+        http == 423 ||
+        serverToken.contains("locked") ||
+        serverToken.contains("file_locked") ||
+        lowMessage.contains("locked") ||
+        lowMessage.contains("file_locked")
+    ) {
+        return "$action failed: file is locked. Unlock it before changing or deleting it."
+    }
     return when (http) {
         400 -> "$action failed: invalid request."
         401 -> "Session expired. Please pair again."
