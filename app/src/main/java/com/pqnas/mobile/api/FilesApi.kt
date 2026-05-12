@@ -147,6 +147,59 @@ data class FileLockStatusBatchResponse(
     val message: String? = null
 )
 
+data class FileNoteDto(
+    val scope_type: String = "",
+    val scope_id: String = "",
+    val logical_rel_path: String = "",
+    val item_kind: String = "",
+    val description: String = "",
+    val has_description: Boolean = false,
+    val updated_by_fp: String? = null,
+    val updated_by_fp_short: String? = null,
+    val updated_by_label: String? = null,
+    val created_at_epoch: Long = 0L,
+    val updated_at_epoch: Long = 0L
+)
+
+data class FileNoteGetResponse(
+    val ok: Boolean = false,
+    val resolved: Boolean = false,
+    val note: FileNoteDto? = null,
+    val error: String? = null,
+    val message: String? = null
+)
+
+data class FileNoteSaveRequest(
+    val scope_type: String,
+    val scope_id: String = "",
+    val workspace_id: String = "",
+    val path: String,
+    val item_kind: String,
+    val description: String
+)
+
+data class FileNoteSaveResponse(
+    val ok: Boolean = false,
+    val note: FileNoteDto? = null,
+    val error: String? = null,
+    val message: String? = null
+)
+
+data class FileNotesResolveRequest(
+    val scope_type: String,
+    val scope_id: String = "",
+    val workspace_id: String = "",
+    val paths: List<String> = emptyList()
+)
+
+data class FileNotesResolveResponse(
+    val ok: Boolean = false,
+    val notes: Map<String, FileNoteDto> = emptyMap(),
+    val count: Long = 0L,
+    val error: String? = null,
+    val message: String? = null
+)
+
 interface FilesApi {
     @GET("/api/v4/files/list")
     suspend fun listFiles(
@@ -158,6 +211,26 @@ interface FilesApi {
     suspend fun fileLockStatusBatch(
         @Body request: FileLockStatusBatchRequest
     ): FileLockStatusBatchResponse
+
+    @GET("/api/v4/file-annotations/note")
+    suspend fun getFileNote(
+        @Query("scope_type") scopeType: String,
+        @Query("scope_id") scopeId: String = "",
+        @Query("workspace_id") workspaceId: String = "",
+        @Query("path") path: String
+    ): FileNoteGetResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/file-annotations/note")
+    suspend fun saveFileNote(
+        @Body request: FileNoteSaveRequest
+    ): FileNoteSaveResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/file-annotations/notes/resolve")
+    suspend fun resolveFileNotes(
+        @Body request: FileNotesResolveRequest
+    ): FileNotesResolveResponse
 
     @GET("/api/v4/me/storage")
     suspend fun getMyStorage(): MeStorageResponse

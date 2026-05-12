@@ -144,6 +144,7 @@ fun FilesScreen(
     var myStorage by remember { mutableStateOf<MeStorageResponse?>(null) }
     var storageStatus by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
+    var commentedPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     var shareDialogItem by remember { mutableStateOf<FileItemDto?>(null) }
     var shareDialogUrl by remember { mutableStateOf("") }
@@ -171,6 +172,11 @@ fun FilesScreen(
     var dropZonePassword by remember { mutableStateOf("") }
 
     var infoItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var infoNoteText by remember { mutableStateOf("") }
+    var infoNoteOriginalText by remember { mutableStateOf("") }
+    var infoNoteLoading by remember { mutableStateOf(false) }
+    var infoNoteSaving by remember { mutableStateOf(false) }
+    var infoNoteStatus by remember { mutableStateOf("") }
     var versionsItem by remember { mutableStateOf<FileItemDto?>(null) }
     var pendingDownloadItem by remember { mutableStateOf<FileItemDto?>(null) }
     var renameItem by remember { mutableStateOf<FileItemDto?>(null) }
@@ -305,6 +311,8 @@ fun FilesScreen(
             status = "Loading..."
         }
 
+        commentedPaths = emptySet()
+
         scope.launch {
             try {
                 val resp = scopedOps.list(scopeSnapshot, path)
@@ -354,6 +362,16 @@ fun FilesScreen(
                     }.getOrNull()
                 }
 
+                val notesDeferred = async {
+                    val notePaths = baseItems.map { item ->
+                        normalizeRelPath(buildItemPath(resp.path.ifBlank { null }, item.name))
+                    }
+
+                    runCatching {
+                        scopedOps.resolveFileNotes(scopeSnapshot, notePaths)
+                    }.getOrNull()
+                }
+
                 val storageDeferred = async {
                     runCatching { filesRepository.getMyStorage() }
                 }
@@ -361,8 +379,19 @@ fun FilesScreen(
                 val favs = favsDeferred.await()
                 val shares = sharesDeferred.await()
                 val lockResp = locksDeferred.await()
+                val notesResp = notesDeferred.await()
 
                 if (requestGeneration != loadGeneration) return@launch
+
+                commentedPaths = notesResp
+                    ?.notes
+                    ?.filterValues { note ->
+                        note.has_description || note.description.isNotBlank()
+                    }
+                    ?.keys
+                    ?.map { normalizeRelPath(it) }
+                    ?.toSet()
+                    ?: emptySet()
 
                 val favoriteKeys = favs?.items?.map {
                     favoriteKey(it.type, it.path)
@@ -613,6 +642,87 @@ fun FilesScreen(
         val parts = path.split("/").filter { it.isNotBlank() }
         if (parts.isEmpty()) return null
         return parts.dropLast(1).joinToString("/").ifBlank { null }
+    }
+
+    fun openInfoDialog(item: FileItemDto) {
+        infoItem = item
+        infoNoteText = ""
+        infoNoteOriginalText = ""
+        infoNoteStatus = ""
+        infoNoteLoading = true
+
+        val path = itemFullPath(item)
+        val scopeSnapshot = currentScope
+
+        scope.launch {
+            try {
+                val resp = scopedOps.getFileNote(scopeSnapshot, path)
+                val desc = resp.note?.description.orEmpty()
+                infoNoteText = desc
+                infoNoteOriginalText = desc
+                infoNoteStatus = if (desc.isBlank()) "No comment yet." else ""
+            } catch (e: Exception) {
+                infoNoteStatus = friendlyHttpMessage("Load comment", e)
+            } finally {
+                infoNoteLoading = false
+            }
+        }
+    }
+
+    fun closeInfoDialog() {
+        infoItem = null
+        infoNoteText = ""
+        infoNoteOriginalText = ""
+        infoNoteStatus = ""
+        infoNoteLoading = false
+        infoNoteSaving = false
+    }
+
+    fun saveInfoComment(item: FileItemDto, description: String) {
+        if (!scopedOps.canWrite(currentScope)) {
+            val msg = "You do not have write access here."
+            infoNoteStatus = msg
+            status = msg
+            scope.launch { snackbarHostState.showSnackbar(msg) }
+            return
+        }
+
+        val path = itemFullPath(item)
+        val scopeSnapshot = currentScope
+        val cleanDescription = description.trim()
+
+        scope.launch {
+            try {
+                infoNoteSaving = true
+                infoNoteStatus = "Saving comment..."
+
+                scopedOps.saveFileNote(
+                    scope = scopeSnapshot,
+                    path = path,
+                    itemKind = item.type,
+                    description = cleanDescription
+                )
+
+                infoNoteText = cleanDescription
+                infoNoteOriginalText = cleanDescription
+                infoNoteStatus = if (cleanDescription.isBlank()) {
+                    "Comment cleared."
+                } else {
+                    "Comment saved."
+                }
+
+                status = "OK"
+                snackbarHostState.showSnackbar(infoNoteStatus)
+                load(currentPath)
+            } catch (e: Exception) {
+                val msg = friendlyHttpMessage("Save comment", e)
+                infoNoteStatus = msg
+                status = msg
+                snackbarHostState.showSnackbar(msg)
+            } finally {
+                infoNoteSaving = false
+            }
+        }
     }
 
     fun createFolder(name: String) {
@@ -1309,14 +1419,39 @@ fun FilesScreen(
                             FileRow(
                                 item = item,
                                 leadingVisual = {
-                                    FileLeadingVisual(
-                                        filesRepository = filesRepository,
-                                        imageLoader = thumbnailImageLoader,
-                                        fileScope = currentScope,
-                                        currentPath = currentPath,
-                                        item = item,
-                                        modifier = Modifier.size(42.dp)
+                                    val fullItemPath = normalizeRelPath(
+                                        buildItemPath(currentPath, item.name)
                                     )
+                                    val hasComment = commentedPaths.contains(fullItemPath)
+
+                                    Box(
+                                        modifier = Modifier.size(42.dp)
+                                    ) {
+                                        FileLeadingVisual(
+                                            filesRepository = filesRepository,
+                                            imageLoader = thumbnailImageLoader,
+                                            fileScope = currentScope,
+                                            currentPath = currentPath,
+                                            item = item,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        if (hasComment) {
+                                            Text(
+                                                text = "✎",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .background(
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = MaterialTheme.shapes.small
+                                                    )
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
                                 },
                                 onOpen = {
                                     if (item.type == "dir") {
@@ -1344,7 +1479,7 @@ fun FilesScreen(
                                         "EditText" -> openTextEditor(clickedItem)
                                         "ToggleFavorite" -> toggleFavorite(clickedItem)
                                         "Share" -> openShareDialog(clickedItem)
-                                        "Info" -> infoItem = clickedItem
+                                        "Info" -> openInfoDialog(clickedItem)
                                         "Versions" -> versionsItem = clickedItem
                                         "Download" -> {
                                             if (clickedItem.type == "dir") {
@@ -1759,29 +1894,126 @@ fun FilesScreen(
 
     infoItem?.let { item ->
         AlertDialog(
-            onDismissRequest = { infoItem = null },
-            confirmButton = {
-                TextButton(onClick = { infoItem = null }) {
-                    Text("OK")
+            onDismissRequest = { closeInfoDialog() },
+            title = { Text("Info") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    val fullPath = itemFullPath(item)
+                    val canEditComment = scopedOps.canWrite(currentScope)
+
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Text("Type: ${if (item.type == "dir") "Folder" else "File"}")
+                    Text("Path: /$fullPath")
+
+                    if (item.isFavorite) {
+                        Text("Favorite: yes")
+                    }
+
+                    if (item.isShared) {
+                        Text("Shared: yes")
+                    }
+
+                    if (item.isLocked) {
+                        Text(
+                            text = "Locked" + (item.locked_by_display?.let { " by $it" } ?: ""),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    Text(
+                        text = "Comment",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    when {
+                        infoNoteLoading -> {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text("Loading comment...")
+                        }
+
+                        canEditComment -> {
+                            OutlinedTextField(
+                                value = infoNoteText,
+                                onValueChange = { infoNoteText = it },
+                                minLines = 3,
+                                maxLines = 8,
+                                label = { Text("File comment") },
+                                placeholder = { Text("Add a note about this file...") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Text(
+                                text = "Stored on DNA-Nexus server and visible from desktop/mobile.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        infoNoteText.isBlank() -> {
+                            Text(
+                                text = "No comment yet.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        else -> {
+                            Text(infoNoteText)
+                        }
+                    }
+
+                    if (infoNoteStatus.isNotBlank()) {
+                        Text(
+                            text = infoNoteStatus,
+                            color = if (infoNoteStatus.contains("failed", ignoreCase = true) ||
+                                infoNoteStatus.contains("error", ignoreCase = true)
+                            ) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
                 }
             },
-            title = { Text("Item info") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Name: ${item.name}")
-                    Text("Type: ${if (item.type == "dir") "Directory" else "File"}")
-                    Text("Favorite: ${if (item.isFavorite) "Yes" else "No"}")
-                    Text("Shared: ${if (item.isShared) "Yes" else "No"}")
-                    Text("Locked: ${if (item.isLocked) "Yes" else "No"}")
-                    if (item.isLocked) {
-                        Text(item.lockSubtitle)
+            confirmButton = {
+                if (scopedOps.canWrite(currentScope)) {
+                    TextButton(
+                        enabled = !infoNoteLoading &&
+                                !infoNoteSaving &&
+                                infoNoteText.trim() != infoNoteOriginalText.trim(),
+                        onClick = { saveInfoComment(item, infoNoteText) }
+                    ) {
+                        Text(if (infoNoteSaving) "Saving..." else "Save")
                     }
-                    Text("Size: ${if (item.type == "dir") "-" else formatBytes(item.size_bytes ?: 0)}")
-                    Text(
-                        "Modified: ${
-                            item.mtime_unix?.takeIf { it > 0 }?.let { formatUnixTime(it) } ?: "-"
-                        }"
-                    )
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (scopedOps.canWrite(currentScope) && infoNoteOriginalText.isNotBlank()) {
+                        TextButton(
+                            enabled = !infoNoteLoading && !infoNoteSaving,
+                            onClick = { saveInfoComment(item, "") }
+                        ) {
+                            Text("Clear")
+                        }
+                    }
+
+                    TextButton(onClick = { closeInfoDialog() }) {
+                        Text("Close")
+                    }
                 }
             }
         )

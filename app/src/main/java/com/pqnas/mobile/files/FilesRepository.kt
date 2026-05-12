@@ -15,6 +15,8 @@ import retrofit2.HttpException
 import com.pqnas.mobile.api.DropZoneCreateRequest
 import com.pqnas.mobile.api.DropZoneDisableRequest
 import com.pqnas.mobile.api.FileLockStatusBatchRequest
+import com.pqnas.mobile.api.FileNotesResolveRequest
+import com.pqnas.mobile.api.FileNoteSaveRequest
 
 class FilesRepository(
     private val tokenStore: TokenStore,
@@ -37,6 +39,75 @@ class FilesRepository(
                 is FileScope.Workspace -> "workspace"
             },
             scope_id = when (scope) {
+                FileScope.User -> ""
+                is FileScope.Workspace -> scope.workspaceId
+            },
+            paths = paths
+                .map { it.replace("\\", "/").trim('/') }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(500)
+        )
+    )
+
+    suspend fun getFileNote(
+        scope: FileScope,
+        path: String
+    ) = filesApi.getFileNote(
+        scopeType = when (scope) {
+            FileScope.User -> "user"
+            is FileScope.Workspace -> "workspace"
+        },
+        scopeId = when (scope) {
+            FileScope.User -> ""
+            is FileScope.Workspace -> scope.workspaceId
+        },
+        workspaceId = when (scope) {
+            FileScope.User -> ""
+            is FileScope.Workspace -> scope.workspaceId
+        },
+        path = path.replace("\\", "/").trim('/')
+    )
+
+    suspend fun saveFileNote(
+        scope: FileScope,
+        path: String,
+        itemKind: String,
+        description: String
+    ) = filesApi.saveFileNote(
+        FileNoteSaveRequest(
+            scope_type = when (scope) {
+                FileScope.User -> "user"
+                is FileScope.Workspace -> "workspace"
+            },
+            scope_id = when (scope) {
+                FileScope.User -> ""
+                is FileScope.Workspace -> scope.workspaceId
+            },
+            workspace_id = when (scope) {
+                FileScope.User -> ""
+                is FileScope.Workspace -> scope.workspaceId
+            },
+            path = path.replace("\\", "/").trim('/'),
+            item_kind = if (itemKind == "dir") "dir" else "file",
+            description = description
+        )
+    )
+
+    suspend fun resolveFileNotes(
+        scope: FileScope,
+        paths: List<String>
+    ) = filesApi.resolveFileNotes(
+        FileNotesResolveRequest(
+            scope_type = when (scope) {
+                FileScope.User -> "user"
+                is FileScope.Workspace -> "workspace"
+            },
+            scope_id = when (scope) {
+                FileScope.User -> ""
+                is FileScope.Workspace -> scope.workspaceId
+            },
+            workspace_id = when (scope) {
                 FileScope.User -> ""
                 is FileScope.Workspace -> scope.workspaceId
             },

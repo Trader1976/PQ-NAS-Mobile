@@ -150,6 +150,20 @@ class ScopedFilesOps(
             is FileScope.Workspace -> repo.mkdirWorkspace(scope.workspaceId, path)
         }
 
+    suspend fun getFileNote(scope: FileScope, path: String) =
+        repo.getFileNote(scope, path)
+
+    suspend fun saveFileNote(
+        scope: FileScope,
+        path: String,
+        itemKind: String,
+        description: String
+    ) =
+        repo.saveFileNote(scope, path, itemKind, description)
+
+    suspend fun resolveFileNotes(scope: FileScope, paths: List<String>) =
+        repo.resolveFileNotes(scope, paths)
+
     suspend fun upload(
         scope: FileScope,
         path: String,
