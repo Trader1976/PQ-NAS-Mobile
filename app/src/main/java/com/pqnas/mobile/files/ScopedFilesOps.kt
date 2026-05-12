@@ -4,6 +4,19 @@ import android.content.Context
 import okhttp3.RequestBody
 import java.io.File
 import okhttp3.ResponseBody
+import com.pqnas.mobile.api.FileLockInfoDto
+
+class FileOperationLockedException(
+    val blockedLocks: Map<String, FileLockInfoDto>
+) : IllegalStateException(
+    blockedLocks.entries.joinToString(
+        separator = "\n",
+        prefix = "Locked by another user:\n"
+    ) { (path, lock) ->
+        val label = lock.locked_by_label ?: lock.locked_by_fp_short ?: "another user"
+        "/$path — $label"
+    }
+)
 
 class ScopedFilesOps(
     private val repo: FilesRepository,
@@ -87,11 +100,49 @@ class ScopedFilesOps(
             is FileScope.Workspace -> repo.deleteWorkspaceFile(scope.workspaceId, path)
         }
 
-    suspend fun move(scope: FileScope, from: String, to: String) =
+    private fun normalizeRel(path: String): String =
+        path
+            .replace('\\', '/')
+            .split('/')
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != "." && it != ".." }
+            .joinToString("/")
+
+    private suspend fun ensureNoOtherUserLocks(scope: FileScope, paths: List<String>) {
+        val cleanPaths = paths
+            .map { normalizeRel(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        if (cleanPaths.isEmpty()) return
+
+        val response = repo.getFileLockStatusBatch(scope, cleanPaths)
+        val blocked = response.locks.filterValues { lock ->
+            !lock.own_lock
+        }
+
+        if (blocked.isNotEmpty()) {
+            throw FileOperationLockedException(blocked)
+        }
+    }
+
+    suspend fun move(scope: FileScope, from: String, to: String) {
+        ensureNoOtherUserLocks(scope, listOf(from, to))
+
         when (scope) {
             FileScope.User -> repo.move(from, to)
             is FileScope.Workspace -> repo.moveWorkspaceFile(scope.workspaceId, from, to)
         }
+    }
+
+    suspend fun copy(scope: FileScope, from: String, to: String) {
+        ensureNoOtherUserLocks(scope, listOf(from, to))
+
+        when (scope) {
+            FileScope.User -> repo.copy(from, to)
+            is FileScope.Workspace -> repo.copyWorkspaceFile(scope.workspaceId, from, to)
+        }
+    }
 
     suspend fun mkdir(scope: FileScope, path: String) =
         when (scope) {

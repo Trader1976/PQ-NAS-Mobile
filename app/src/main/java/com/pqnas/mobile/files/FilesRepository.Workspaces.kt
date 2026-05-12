@@ -96,6 +96,17 @@ suspend fun FilesRepository.moveWorkspaceFile(
         throwApiBodyAwareError(e, "move workspace file failed")
     }
 
+suspend fun FilesRepository.copyWorkspaceFile(
+    workspaceId: String,
+    from: String,
+    to: String
+) =
+    try {
+        createWorkspaceFilesApiInternal().copyWorkspaceFile(workspaceId, from, to)
+    } catch (e: HttpException) {
+        throwApiBodyAwareError(e, "copy workspace file failed")
+    }
+
 suspend fun FilesRepository.mkdirWorkspace(
     workspaceId: String,
     path: String

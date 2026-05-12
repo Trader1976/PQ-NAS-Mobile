@@ -209,6 +209,12 @@ interface FilesApi {
         @Query("to") to: String
     ): MoveFileResponse
 
+    @POST("/api/v4/files/copy")
+    suspend fun copyFile(
+        @Query("from") from: String,
+        @Query("to") to: String
+    ): MoveFileResponse
+
     @POST("/api/v4/files/mkdir")
     suspend fun mkdir(
         @Query("path") path: String

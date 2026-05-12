@@ -177,6 +177,13 @@ fun FilesScreen(
     var pendingUploadUri by remember { mutableStateOf<Uri?>(null) }
     var pendingUploadName by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var moveCopyItem by remember { mutableStateOf<FileItemDto?>(null) }
+    var moveCopyMode by remember { mutableStateOf("Move") }
+    var moveCopyDestination by remember { mutableStateOf("") }
+    var moveCopyPickerPath by remember { mutableStateOf<String?>(null) }
+    var moveCopyPickerFolders by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
+    var moveCopyPickerLoading by remember { mutableStateOf(false) }
+    var moveCopyPickerStatus by remember { mutableStateOf("") }
     var deleteItem by remember { mutableStateOf<FileItemDto?>(null) }
     var imagePreviewItems by remember { mutableStateOf<List<FileItemDto>>(emptyList()) }
     var imagePreviewStartIndex by remember { mutableStateOf<Int?>(null) }
@@ -651,6 +658,106 @@ fun FilesScreen(
                 load(currentPath)
             } catch (e: Exception) {
                 val msg = friendlyHttpMessage("Create text file", e)
+                status = msg
+                snackbarHostState.showSnackbar(msg)
+            }
+        }
+    }
+
+    fun loadMoveCopyPicker(path: String?) {
+        val cleanPath = normalizeRelPath(path)
+        val pathArg = cleanPath.ifBlank { null }
+
+        moveCopyPickerPath = pathArg
+        moveCopyDestination = cleanPath
+        moveCopyPickerLoading = true
+        moveCopyPickerStatus = ""
+
+        scope.launch {
+            try {
+                val resp = scopedOps.list(currentScope, pathArg)
+
+                moveCopyPickerFolders = resp.items
+                    .filter { it.type == "dir" }
+                    .sortedBy { it.name.lowercase(Locale.getDefault()) }
+
+                moveCopyPickerPath = if (resp.path.isBlank()) null else normalizeRelPath(resp.path)
+                moveCopyDestination = normalizeRelPath(moveCopyPickerPath)
+            } catch (e: Exception) {
+                moveCopyPickerFolders = emptyList()
+                moveCopyPickerStatus = friendlyHttpMessage("Folders", e)
+            } finally {
+                moveCopyPickerLoading = false
+            }
+        }
+    }
+
+    fun openMoveCopyDialog(mode: String, item: FileItemDto) {
+        if (!scopedOps.canWrite(currentScope)) {
+            val msg = "You do not have write access here."
+            status = msg
+            scope.launch { snackbarHostState.showSnackbar(msg) }
+            return
+        }
+
+        if (mode == "Move" && item.isLocked) {
+            val msg = "${item.name} is locked. Unlock it before moving."
+            status = msg
+            scope.launch { snackbarHostState.showSnackbar(msg) }
+            return
+        }
+
+        moveCopyMode = mode
+        moveCopyItem = item
+        moveCopyPickerFolders = emptyList()
+        moveCopyPickerStatus = ""
+        loadMoveCopyPicker(currentPath)
+    }
+
+    fun runMoveCopy(item: FileItemDto, mode: String, destinationDirRaw: String) {
+        val destinationDir = normalizeRelPath(destinationDirRaw)
+
+        val fromPath = itemFullPath(item)
+        val toPath = normalizeRelPath(
+            buildItemPath(
+                if (destinationDir.isBlank()) null else destinationDir,
+                item.name
+            )
+        )
+
+        if (toPath.isBlank()) {
+            val msg = "Destination cannot be empty."
+            status = msg
+            scope.launch { snackbarHostState.showSnackbar(msg) }
+            return
+        }
+
+        if (mode == "Move" && fromPath == toPath) {
+            moveCopyItem = null
+            moveCopyDestination = ""
+            status = "Move cancelled: source and destination are the same."
+            return
+        }
+
+        scope.launch {
+            try {
+                status = if (mode == "Copy") "Copying ${item.name}..." else "Moving ${item.name}..."
+
+                if (mode == "Copy") {
+                    scopedOps.copy(currentScope, fromPath, toPath)
+                } else {
+                    scopedOps.move(currentScope, fromPath, toPath)
+                }
+
+                moveCopyItem = null
+                moveCopyDestination = ""
+                status = "OK"
+                snackbarHostState.showSnackbar(
+                    if (mode == "Copy") "Copied ${item.name}" else "Moved ${item.name}"
+                )
+                load(currentPath)
+            } catch (e: Exception) {
+                val msg = friendlyHttpMessage(mode, e)
                 status = msg
                 snackbarHostState.showSnackbar(msg)
             }
@@ -1230,7 +1337,9 @@ fun FilesScreen(
                                                 createDocumentLauncher.launch(clickedItem.name)
                                             }
                                         }
-                                        "Rename" -> {
+                                        "Move" -> openMoveCopyDialog("Move", item)
+            "Copy" -> openMoveCopyDialog("Copy", item)
+            "Rename" -> {
                                             if (clickedItem.isLocked) {
                                                 val msg = "${clickedItem.name} is locked. Unlock it before renaming."
                                                 status = msg
@@ -1724,6 +1833,139 @@ fun FilesScreen(
                     onClick = {
                         renameItem = null
                         renameText = ""
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    moveCopyItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = {
+                moveCopyItem = null
+                moveCopyDestination = ""
+            },
+            title = { Text("$moveCopyMode ${item.name}") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Choose destination folder.")
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            enabled = !moveCopyPickerLoading,
+                            onClick = { loadMoveCopyPicker(null) }
+                        ) {
+                            Text("Root")
+                        }
+
+                        TextButton(
+                            enabled = !moveCopyPickerLoading && !moveCopyPickerPath.isNullOrBlank(),
+                            onClick = { loadMoveCopyPicker(parentPath(moveCopyPickerPath)) }
+                        ) {
+                            Text("Up")
+                        }
+
+                        TextButton(
+                            enabled = !moveCopyPickerLoading,
+                            onClick = { loadMoveCopyPicker(moveCopyPickerPath) }
+                        ) {
+                            Text("Refresh")
+                        }
+                    }
+
+                    Text(
+                        text = "Current: /" + normalizeRelPath(moveCopyPickerPath),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Text(
+                        text = "Target: /" + normalizeRelPath(
+                            buildItemPath(
+                                if (moveCopyDestination.isBlank()) null else moveCopyDestination,
+                                item.name
+                            )
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    HorizontalDivider()
+
+                    if (moveCopyPickerLoading) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text("Loading folders...")
+                    } else if (moveCopyPickerFolders.isEmpty()) {
+                        Text(
+                            text = if (moveCopyPickerStatus.isNotBlank()) {
+                                moveCopyPickerStatus
+                            } else {
+                                "No subfolders here."
+                            },
+                            color = if (moveCopyPickerStatus.isNotBlank()) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp)
+                        ) {
+                            items(
+                                moveCopyPickerFolders,
+                                key = { folder -> folder.name }
+                            ) { folder ->
+                                val folderPath = normalizeRelPath(
+                                    buildItemPath(moveCopyPickerPath, folder.name)
+                                )
+
+                                ListItem(
+                                    headlineContent = {
+                                        Text("📁 ${folder.name}")
+                                    },
+                                    supportingContent = {
+                                        Text("/$folderPath")
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            loadMoveCopyPicker(folderPath)
+                                        }
+                                )
+
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !moveCopyPickerLoading,
+                    onClick = {
+                        runMoveCopy(item, moveCopyMode, moveCopyDestination)
+                    }
+                ) {
+                    Text(if (moveCopyMode == "Copy") "Copy here" else "Move here")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        moveCopyItem = null
+                        moveCopyDestination = ""
                     }
                 ) {
                     Text("Cancel")
@@ -2364,6 +2606,22 @@ private fun FileRow(
                             onClick = {
                                 menuExpanded = false
                                 onMenuAction("Rename", item)
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Move…") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("Move", item)
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Copy…") },
+                            onClick = {
+                                menuExpanded = false
+                                onMenuAction("Copy", item)
                             }
                         )
 

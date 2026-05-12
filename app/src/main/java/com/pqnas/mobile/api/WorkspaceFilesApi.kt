@@ -53,6 +53,13 @@ interface WorkspaceFilesApi {
         @Query("to") to: String
     ): MoveFileResponse
 
+    @POST("/api/v4/workspaces/files/copy")
+    suspend fun copyWorkspaceFile(
+        @Query("workspace_id") workspaceId: String,
+        @Query("from") from: String,
+        @Query("to") to: String
+    ): MoveFileResponse
+
     @POST("/api/v4/workspaces/files/mkdir")
     suspend fun mkdirWorkspace(
         @Query("workspace_id") workspaceId: String,

@@ -191,6 +191,9 @@ class FilesRepository(
     suspend fun move(from: String, to: String) =
         filesApi.moveFile(from, to)
 
+    suspend fun copy(from: String, to: String) =
+        filesApi.copyFile(from, to)
+
     suspend fun mkdir(path: String) =
         filesApi.mkdir(path)
 
