@@ -72,6 +72,7 @@ fun FileVersionsSheet(
     var pendingRestore by remember { mutableStateOf<FileVersionItemDto?>(null) }
     var restoringVersionId by remember { mutableStateOf<String?>(null) }
     var flaggingVersionId by remember { mutableStateOf<String?>(null) }
+    var comparingVersion by remember { mutableStateOf<FileVersionItemDto?>(null) }
 
     val canRestore = scopedOps.canWrite(fileScope)
     val scopeLabel = when (fileScope) {
@@ -181,6 +182,10 @@ fun FileVersionsSheet(
                             canRestore = canRestore,
                             isRestoring = restoringVersionId == item.version_id,
                             isFlagging = flaggingVersionId == item.version_id,
+                            canCompare = isTextLikeVersionPath(relPath),
+                            onCompare = {
+                                comparingVersion = item
+                            },
                             onToggleFlag = {
                                 val versionId = item.version_id
                                 if (versionId.isBlank()) return@VersionRow
@@ -294,6 +299,16 @@ fun FileVersionsSheet(
             }
         )
     }
+    comparingVersion?.let { item ->
+        FileVersionCompareDialog(
+            filesRepository = filesRepository,
+            fileScope = fileScope,
+            relPath = relPath,
+            displayName = displayName,
+            version = item,
+            onDismiss = { comparingVersion = null }
+        )
+    }
 }
 
 @Composable
@@ -302,6 +317,8 @@ private fun VersionRow(
     canRestore: Boolean,
     isRestoring: Boolean,
     isFlagging: Boolean,
+    canCompare: Boolean,
+    onCompare: () -> Unit,
     onToggleFlag: () -> Unit,
     onCopySha: (String) -> Unit,
     onRestore: () -> Unit
@@ -335,19 +352,19 @@ private fun VersionRow(
 
             Text(
                 text = "Date: ${formatVersionTime(item)}",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Text(
                 text = "Actor: $actor",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Text(
                 text = "Size: ${formatVersionBytes(item.bytes)}",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -390,6 +407,13 @@ private fun VersionRow(
                 horizontalArrangement = Arrangement.End
             ) {
                 TextButton(
+                    enabled = canCompare && item.version_id.isNotBlank(),
+                    onClick = onCompare
+                ) {
+                    Text("Compare")
+                }
+
+                TextButton(
                     enabled = !isFlagging && item.version_id.isNotBlank(),
                     onClick = onToggleFlag
                 ) {
@@ -425,6 +449,15 @@ private fun VersionRow(
             }
         }
     }
+}
+
+private fun isTextLikeVersionPath(path: String): Boolean {
+    val ext = path.substringAfterLast('.', missingDelimiterValue = "").lowercase(Locale.getDefault())
+    return ext in setOf(
+        "txt", "md", "log", "json", "html", "htm", "css", "js", "ts",
+        "c", "cc", "cpp", "h", "hpp", "py", "sh", "yml", "yaml",
+        "ini", "conf", "csv", "xml", "sql", "toml"
+    )
 }
 
 private fun versionFlagSummary(item: FileVersionItemDto): String {

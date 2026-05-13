@@ -206,6 +206,17 @@ class ScopedFilesOps(
             )
         }
 
+
+    suspend fun readVersionText(
+        scope: FileScope,
+        path: String,
+        versionId: String
+    ) =
+        when (scope) {
+            FileScope.User -> repo.readFileVersionText(path, versionId)
+            is FileScope.Workspace -> repo.readWorkspaceFileVersionText(scope.workspaceId, path, versionId)
+        }
+
     suspend fun listVersions(scope: FileScope, path: String) =
         when (scope) {
             FileScope.User -> repo.listFileVersions(path)

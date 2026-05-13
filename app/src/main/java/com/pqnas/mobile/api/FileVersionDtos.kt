@@ -9,6 +9,24 @@ data class FileVersionFlagDto(
     val note: String? = null
 )
 
+data class FileVersionTextResponse(
+    val ok: Boolean = false,
+    val scope_type: String = "",
+    val scope_id: String = "",
+    val workspace_id: String? = null,
+    val path: String = "",
+    val version_id: String = "",
+    val text: String = "",
+    val bytes: Long = 0L,
+    val created_at: String? = null,
+    val created_epoch: Long? = null,
+    val encoding: String? = null,
+    val sha256: String? = null,
+    val sha256_hex: String? = null,
+    val error: String? = null,
+    val message: String? = null
+)
+
 data class FileVersionItemDto(
     val version_id: String = "",
     val event_kind: String? = null,

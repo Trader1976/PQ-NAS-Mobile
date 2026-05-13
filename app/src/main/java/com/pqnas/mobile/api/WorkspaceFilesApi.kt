@@ -104,6 +104,14 @@ interface WorkspaceFilesApi {
         @Body request: WorkspaceEditLeaseReleaseRequest
     ): WorkspaceEditLeaseReleaseResponse
 
+
+    @GET("/api/v4/workspaces/files/versions/read_text")
+    suspend fun readWorkspaceFileVersionText(
+        @Query("workspace_id") workspaceId: String,
+        @Query("path") path: String,
+        @Query("version_id") versionId: String
+    ): FileVersionTextResponse
+
     @GET("/api/v4/workspaces/files/versions/list")
     suspend fun listWorkspaceFileVersions(
         @Query("workspace_id") workspaceId: String,

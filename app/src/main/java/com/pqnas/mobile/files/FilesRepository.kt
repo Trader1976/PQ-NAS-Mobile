@@ -400,6 +400,20 @@ class FilesRepository(
             )
         )
 
+
+    suspend fun readFileVersionText(path: String, versionId: String) =
+        filesApi.readFileVersionText(
+            path = path.replace("\\", "/").trim('/'),
+            versionId = versionId
+        )
+
+    suspend fun readWorkspaceFileVersionText(workspaceId: String, path: String, versionId: String) =
+        workspaceFilesApi.readWorkspaceFileVersionText(
+            workspaceId = workspaceId,
+            path = path.replace("\\", "/").trim('/'),
+            versionId = versionId
+        )
+
     suspend fun createTextFile(path: String, text: String = "", overwrite: Boolean = false) =
         filesApi.uploadFile(
             path = path,

@@ -380,6 +380,13 @@ interface FilesApi {
         @Body request: RevokeShareRequest
     ): RevokeShareResponse
 
+
+    @GET("/api/v4/files/versions/read_text")
+    suspend fun readFileVersionText(
+        @Query("path") path: String,
+        @Query("version_id") versionId: String
+    ): FileVersionTextResponse
+
     @GET("/api/v4/files/versions/list")
     suspend fun listFileVersions(
         @Query("path") path: String
