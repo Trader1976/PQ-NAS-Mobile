@@ -402,49 +402,60 @@ private fun VersionRow(
 
             HorizontalDivider()
 
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                TextButton(
-                    enabled = canCompare && item.version_id.isNotBlank(),
-                    onClick = onCompare
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Compare")
-                }
-
-                TextButton(
-                    enabled = !isFlagging && item.version_id.isNotBlank(),
-                    onClick = onToggleFlag
-                ) {
-                    Text(
-                        when {
-                            isFlagging -> "Working..."
-                            item.flagged_by_me -> "⭐ Unflag"
-                            else -> "☆ Flag"
-                        }
-                    )
-                }
-
-                if (sha.isNotBlank()) {
                     TextButton(
-                        onClick = { onCopySha(sha) }
+                        enabled = canCompare && item.version_id.isNotBlank(),
+                        onClick = onCompare
                     ) {
-                        Text("Copy SHA")
+                        Text("Compare")
+                    }
+
+                    TextButton(
+                        enabled = !isFlagging && item.version_id.isNotBlank(),
+                        onClick = onToggleFlag
+                    ) {
+                        Text(
+                            when {
+                                isFlagging -> "Working..."
+                                item.flagged_by_me -> "⭐ Unflag"
+                                else -> "☆ Flag"
+                            }
+                        )
                     }
                 }
 
-                TextButton(
-                    enabled = canRestore && !isRestoring,
-                    onClick = onRestore
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        when {
-                            isRestoring -> "Restoring..."
-                            !canRestore -> "Read only"
-                            else -> "Restore"
+                    if (sha.isNotBlank()) {
+                        TextButton(
+                            onClick = { onCopySha(sha) }
+                        ) {
+                            Text("Copy SHA")
                         }
-                    )
+                    }
+
+                    TextButton(
+                        enabled = canRestore && !isRestoring,
+                        onClick = onRestore
+                    ) {
+                        Text(
+                            when {
+                                isRestoring -> "Restoring..."
+                                !canRestore -> "Read only"
+                                else -> "Restore"
+                            }
+                        )
+                    }
                 }
             }
         }
