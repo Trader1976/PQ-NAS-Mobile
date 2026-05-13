@@ -212,6 +212,25 @@ class ScopedFilesOps(
             is FileScope.Workspace -> repo.listWorkspaceFileVersions(scope.workspaceId, path)
         }
 
+
+    suspend fun setVersionFlag(
+        scope: FileScope,
+        path: String,
+        versionId: String,
+        shouldFlag: Boolean
+    ) =
+        when (scope) {
+            FileScope.User -> {
+                if (shouldFlag) repo.flagFileVersion(path, versionId)
+                else repo.unflagFileVersion(path, versionId)
+            }
+
+            is FileScope.Workspace -> {
+                if (shouldFlag) repo.flagWorkspaceFileVersion(scope.workspaceId, path, versionId)
+                else repo.unflagWorkspaceFileVersion(scope.workspaceId, path, versionId)
+            }
+        }
+
     suspend fun restoreVersion(
         scope: FileScope,
         path: String,

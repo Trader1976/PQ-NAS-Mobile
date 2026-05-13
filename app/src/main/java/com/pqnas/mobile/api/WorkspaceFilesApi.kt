@@ -110,6 +110,19 @@ interface WorkspaceFilesApi {
         @Query("path") path: String
     ): FileVersionsListResponse
 
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/workspaces/files/versions/flag")
+    suspend fun flagWorkspaceFileVersion(
+        @Body request: WorkspaceVersionFlagRequest
+    ): VersionFlagResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/workspaces/files/versions/unflag")
+    suspend fun unflagWorkspaceFileVersion(
+        @Body request: WorkspaceVersionFlagRequest
+    ): VersionFlagResponse
+
     @Headers("Content-Type: application/json")
     @POST("/api/v4/workspaces/files/restore_version")
     suspend fun restoreWorkspaceFileVersion(

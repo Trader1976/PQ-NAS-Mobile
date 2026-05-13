@@ -200,6 +200,28 @@ data class FileNotesResolveResponse(
     val message: String? = null
 )
 
+data class VersionFlagRequest(
+    val path: String,
+    val version_id: String,
+    val note: String = ""
+)
+
+data class WorkspaceVersionFlagRequest(
+    val workspace_id: String,
+    val path: String,
+    val version_id: String,
+    val note: String = ""
+)
+
+data class VersionFlagResponse(
+    val ok: Boolean = false,
+    val flagged: Boolean = false,
+    val flag_count: Long = 0L,
+    val flagged_by_me: Boolean = false,
+    val error: String? = null,
+    val message: String? = null
+)
+
 interface FilesApi {
     @GET("/api/v4/files/list")
     suspend fun listFiles(
@@ -362,6 +384,19 @@ interface FilesApi {
     suspend fun listFileVersions(
         @Query("path") path: String
     ): FileVersionsListResponse
+
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/files/versions/flag")
+    suspend fun flagFileVersion(
+        @Body request: VersionFlagRequest
+    ): VersionFlagResponse
+
+    @Headers("Content-Type: application/json")
+    @POST("/api/v4/files/versions/unflag")
+    suspend fun unflagFileVersion(
+        @Body request: VersionFlagRequest
+    ): VersionFlagResponse
 
     @Headers("Content-Type: application/json")
     @POST("/api/v4/files/restore_version")

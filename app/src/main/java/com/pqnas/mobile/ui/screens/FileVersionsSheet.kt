@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -69,6 +71,7 @@ fun FileVersionsSheet(
     var closeAfterRestore by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<FileVersionItemDto?>(null) }
     var restoringVersionId by remember { mutableStateOf<String?>(null) }
+    var flaggingVersionId by remember { mutableStateOf<String?>(null) }
 
     val canRestore = scopedOps.canWrite(fileScope)
     val scopeLabel = when (fileScope) {
@@ -177,6 +180,33 @@ fun FileVersionsSheet(
                             item = item,
                             canRestore = canRestore,
                             isRestoring = restoringVersionId == item.version_id,
+                            isFlagging = flaggingVersionId == item.version_id,
+                            onToggleFlag = {
+                                val versionId = item.version_id
+                                if (versionId.isBlank()) return@VersionRow
+
+                                scope.launch {
+                                    flaggingVersionId = versionId
+                                    val wasFlagged = item.flagged_by_me
+                                    try {
+                                        scopedOps.setVersionFlag(
+                                            scope = fileScope,
+                                            path = relPath,
+                                            versionId = versionId,
+                                            shouldFlag = !wasFlagged
+                                        )
+                                        status = if (wasFlagged) "Flag removed." else "Version flagged."
+                                        loadVersions()
+                                    } catch (e: Exception) {
+                                        status = friendlyVersionsMessage(
+                                            if (wasFlagged) "Remove flag" else "Flag version",
+                                            e
+                                        )
+                                    } finally {
+                                        flaggingVersionId = null
+                                    }
+                                }
+                            },
                             onCopySha = { sha ->
                                 if (copyToClipboard(context, "sha256", sha)) {
                                     status = "SHA copied."
@@ -271,6 +301,8 @@ private fun VersionRow(
     item: FileVersionItemDto,
     canRestore: Boolean,
     isRestoring: Boolean,
+    isFlagging: Boolean,
+    onToggleFlag: () -> Unit,
     onCopySha: (String) -> Unit,
     onRestore: () -> Unit
 ) {
@@ -319,6 +351,22 @@ private fun VersionRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            val flagText = versionFlagSummary(item)
+            if (flagText.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                ) {
+                    Text(
+                        text = flagText,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
             if (sha.isNotBlank()) {
                 Text(
                     text = "SHA-256: ${shortSha(sha)}",
@@ -341,6 +389,19 @@ private fun VersionRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
+                TextButton(
+                    enabled = !isFlagging && item.version_id.isNotBlank(),
+                    onClick = onToggleFlag
+                ) {
+                    Text(
+                        when {
+                            isFlagging -> "Working..."
+                            item.flagged_by_me -> "⭐ Unflag"
+                            else -> "☆ Flag"
+                        }
+                    )
+                }
+
                 if (sha.isNotBlank()) {
                     TextButton(
                         onClick = { onCopySha(sha) }
@@ -363,6 +424,27 @@ private fun VersionRow(
                 }
             }
         }
+    }
+}
+
+private fun versionFlagSummary(item: FileVersionItemDto): String {
+    val flags = item.flags
+    val count = item.flag_count.takeIf { it > 0L } ?: flags.size.toLong()
+    if (count <= 0L) return ""
+
+    val names = flags
+        .mapNotNull { flag ->
+            flag.actor_display
+                ?.takeIf { it.isNotBlank() }
+                ?: flag.actor_name_snapshot?.takeIf { it.isNotBlank() }
+                ?: flag.actor_fp?.takeIf { it.isNotBlank() }
+        }
+
+    return when {
+        names.size == 1 -> "⭐ ${names[0]} flagged this version"
+        names.size == 2 -> "⭐ ${names[0]} and ${names[1]} flagged this version"
+        names.size > 2 -> "⭐ ${names[0]}, ${names[1]} and ${names.size - 2} more flagged this version"
+        else -> "⭐ Flagged by $count user${if (count == 1L) "" else "s"}"
     }
 }
 

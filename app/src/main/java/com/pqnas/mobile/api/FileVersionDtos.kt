@@ -1,5 +1,14 @@
 package com.pqnas.mobile.api
 
+data class FileVersionFlagDto(
+    val actor_fp: String? = null,
+    val actor_name_snapshot: String? = null,
+    val actor_display: String? = null,
+    val created_at: String? = null,
+    val created_epoch: Long? = null,
+    val note: String? = null
+)
+
 data class FileVersionItemDto(
     val version_id: String = "",
     val event_kind: String? = null,
@@ -14,7 +23,10 @@ data class FileVersionItemDto(
     val logical_rel_path: String? = null,
     val scope_type: String? = null,
     val scope_id: String? = null,
-    val workspace_id: String? = null
+    val workspace_id: String? = null,
+    val flag_count: Long = 0L,
+    val flagged_by_me: Boolean = false,
+    val flags: List<FileVersionFlagDto> = emptyList(),
 )
 
 data class FileVersionsListResponse(

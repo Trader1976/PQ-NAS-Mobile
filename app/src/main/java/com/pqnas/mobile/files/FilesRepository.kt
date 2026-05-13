@@ -1,5 +1,7 @@
 package com.pqnas.mobile.files
 
+import com.pqnas.mobile.api.WorkspaceVersionFlagRequest
+import com.pqnas.mobile.api.VersionFlagRequest
 import com.pqnas.mobile.api.ApiFactory
 import com.pqnas.mobile.api.ChunkedUploadCancelRequest
 import com.pqnas.mobile.api.ChunkedUploadFinishRequest
@@ -362,6 +364,41 @@ class FilesRepository(
             throw e
         }
     }
+
+
+    suspend fun flagFileVersion(path: String, versionId: String) =
+        filesApi.flagFileVersion(
+            VersionFlagRequest(
+                path = path.replace("\\", "/").trim('/'),
+                version_id = versionId
+            )
+        )
+
+    suspend fun unflagFileVersion(path: String, versionId: String) =
+        filesApi.unflagFileVersion(
+            VersionFlagRequest(
+                path = path.replace("\\", "/").trim('/'),
+                version_id = versionId
+            )
+        )
+
+    suspend fun flagWorkspaceFileVersion(workspaceId: String, path: String, versionId: String) =
+        workspaceFilesApi.flagWorkspaceFileVersion(
+            WorkspaceVersionFlagRequest(
+                workspace_id = workspaceId,
+                path = path.replace("\\", "/").trim('/'),
+                version_id = versionId
+            )
+        )
+
+    suspend fun unflagWorkspaceFileVersion(workspaceId: String, path: String, versionId: String) =
+        workspaceFilesApi.unflagWorkspaceFileVersion(
+            WorkspaceVersionFlagRequest(
+                workspace_id = workspaceId,
+                path = path.replace("\\", "/").trim('/'),
+                version_id = versionId
+            )
+        )
 
     suspend fun createTextFile(path: String, text: String = "", overwrite: Boolean = false) =
         filesApi.uploadFile(
