@@ -24,6 +24,7 @@ data class AdminUserDto(
     val storage_state: String? = null,
     val quota_bytes: Long? = null,
     val used_bytes: Long? = null,
+    val storage_used_bytes: Long? = null,
     val pool_id: String? = null,
     val pool: String? = null,
     val storage_pool_id: String? = null

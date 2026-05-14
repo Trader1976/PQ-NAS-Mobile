@@ -117,22 +117,24 @@ fun AdminScreen(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = onBack) {
-                Text("Back")
+                Text("Back", color = MaterialTheme.colorScheme.onPrimary)
             }
 
             OutlinedButton(onClick = { reload() }) {
-                Text("Refresh")
+                Text("Refresh", color = MaterialTheme.colorScheme.primary)
             }
         }
 
         Text(
             text = "Admin tools",
-            style = MaterialTheme.typography.headlineSmall
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         Text(
             text = "Approvals, enable/disable, revoke, and user storage allocation.",
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -169,7 +171,8 @@ fun AdminScreen(
             Text(
                 text = status,
                 modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
 
@@ -269,7 +272,7 @@ private fun AdminUserCard(
     val role = user.role ?: "user"
     val storageState = user.storage_state ?: "unallocated"
     val quota = user.quota_bytes ?: 0L
-    val used = user.used_bytes ?: 0L
+    val used = user.used_bytes ?: user.storage_used_bytes ?: 0L
     val pool = user.pool_id ?: user.pool ?: user.storage_pool_id ?: "default"
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -279,28 +282,33 @@ private fun AdminUserCard(
         ) {
             Text(
                 text = userDisplayName(user),
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Text(
                 text = "Role: $role  •  Status: $status",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Text(
                 text = "Storage: $storageState  •  Pool: $pool",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Text(
                 text = "Used: ${fmtBytes(used)} / Quota: ${if (quota > 0) fmtBytes(quota) else "not allocated"}",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Text(
                 text = user.fingerprint,
                 fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             if (!user.notes.isNullOrBlank()) {
