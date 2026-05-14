@@ -24,6 +24,9 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.pqnas.mobile.admin.AdminRepository
+import com.pqnas.mobile.api.ApiFactory
+import com.pqnas.mobile.ui.screens.AdminScreen
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,6 +49,7 @@ class MainActivity : FragmentActivity() {
                 var baseUrl by remember { mutableStateOf("") }
                 var pairPayload by remember { mutableStateOf<PairQrPayload?>(null) }
                 var authLoaded by remember { mutableStateOf(false) }
+                var isAdmin by remember { mutableStateOf(false) }
 
                 var appUnlocked by remember { mutableStateOf(false) }
                 var appLockStatus by remember { mutableStateOf("") }
@@ -57,7 +61,7 @@ class MainActivity : FragmentActivity() {
                 DisposableEffect(lifecycleOwner, authLoaded, screen) {
                     val observer = object : DefaultLifecycleObserver {
                         override fun onStop(owner: LifecycleOwner) {
-                            if (authLoaded && screen == "files") {
+                            if (authLoaded && (screen == "files" || screen == "admin")) {
                                 val pickerHandoffAgeMs =
                                     System.currentTimeMillis() - externalPickerLaunchedAtMs.longValue
 
@@ -83,6 +87,7 @@ class MainActivity : FragmentActivity() {
                     scope.launch {
                         authRepository.logout()
                         baseUrl = ""
+                        isAdmin = false
                         pairPayload = null
                         appUnlocked = false
                         appLockStatus = ""
@@ -165,12 +170,13 @@ class MainActivity : FragmentActivity() {
                 LaunchedEffect(Unit) {
                     val state = tokenStore.getAuthStateOnce()
                     baseUrl = state.baseUrl
+                    isAdmin = state.role == "admin"
                     screen = if (state.isLoggedIn) "files" else "server"
                     authLoaded = true
                 }
 
                 LaunchedEffect(authLoaded, screen, appUnlocked) {
-                    if (authLoaded && screen == "files" && !appUnlocked) {
+                    if (authLoaded && (screen == "files" || screen == "admin") && !appUnlocked) {
                         requestAppUnlock()
                     }
                 }
@@ -219,6 +225,7 @@ class MainActivity : FragmentActivity() {
                                     scope.launch {
                                         val s = tokenStore.getAuthStateOnce()
                                         baseUrl = s.baseUrl
+                                        isAdmin = s.role == "admin"
 
                                         // Pairing just completed successfully, so do not immediately
                                         // force a second unlock prompt in the same foreground session.
@@ -234,6 +241,36 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
+
+                    "admin" -> {
+                        if (!appUnlocked) {
+                            AppLockScreen(
+                                status = appLockStatus,
+                                onUnlock = {
+                                    requestAppUnlock(force = true)
+                                },
+                                onLogout = {
+                                    logoutToServerScreen()
+                                }
+                            )
+                        } else {
+                            val adminRepository = remember(tokenStore, baseUrl) {
+                                AdminRepository(
+                                    ApiFactory.createAdminApi(
+                                        baseUrl = baseUrl,
+                                        tokenStore = tokenStore
+                                    )
+                                )
+                            }
+
+                            AdminScreen(
+                                repository = adminRepository,
+                                onBack = {
+                                    screen = "files"
+                                }
+                            )
+                        }
+                    }
                     "files" -> {
                         if (!appUnlocked) {
                             AppLockScreen(
@@ -258,6 +295,9 @@ class MainActivity : FragmentActivity() {
                                 onLogout = {
                                     logoutToServerScreen()
                                 },
+                                onOpenAdmin = if (isAdmin) {
+                                    { screen = "admin" }
+                                } else null,
                                 onBeforeExternalPicker = {
                                     externalPickerLaunchedAtMs.longValue = System.currentTimeMillis()
                                 }

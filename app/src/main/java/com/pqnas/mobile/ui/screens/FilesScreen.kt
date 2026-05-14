@@ -112,6 +112,7 @@ import androidx.compose.material.icons.filled.Lock
 fun FilesScreen(
     filesRepository: FilesRepository,
     onLogout: (() -> Unit)? = null,
+    onOpenAdmin: (() -> Unit)? = null,
     onBeforeExternalPicker: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1575,11 +1576,23 @@ fun FilesScreen(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
+
                 SettingsStorageSection(
                     storage = myStorage,
                     storageStatus = storageStatus
                 )
 
+                if (onOpenAdmin != null) {
+                    Button(
+                        onClick = {
+                            showSettingsSheet = false
+                            onOpenAdmin()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Admin tools")
+                    }
+                }
 
                 Button(
                     onClick = { showAboutDialog = true },
@@ -1633,6 +1646,7 @@ fun FilesScreen(
                     }
                 }
             }
+
         }
     }
         if (showAppsSheet) {
